@@ -1,0 +1,6 @@
+MerylCarPlayer V0.36
+
+- Vue bibliothèque : pochettes seules, sans nom d’album sous les miniatures.
+- Recherche réduite à une loupe compacte.
+- Loupe intégrée dans la barre supérieure avec ARTISTES / GENRES / 1 / 2 / 3 / 4.
+- Appui sur la loupe : fenêtre de recherche avec possibilité d’effacer le filtre.

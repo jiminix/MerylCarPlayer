@@ -1,0 +1,7 @@
+MerylCarPlayer V0.53
+
+- Une seule pochette par artiste dans la vue Artistes.
+- Double appui sur la pochette d’un artiste pour afficher tous ses albums.
+- Retour Android pour revenir à la liste des artistes.
+- Le compteur indique désormais artistes + albums dans la vue principale, puis l’artiste + son nombre d’albums dans la vue développée.
+- versionCode 52 / versionName 0.53.

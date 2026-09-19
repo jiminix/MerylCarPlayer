@@ -1,0 +1,9 @@
+MerylCarPlayer V0.30
+
+- Pochettes regroupées par artiste dans la bibliothèque.
+- Ajout de deux onglets : Albums et Envoi.
+- Onglet Envoi avec deux zones distinctes : Samsung A34g / Coller le ou les LPs ici et Albums collés.
+- Sélection de 10 albums maximum pour l’envoi.
+- Suppression individuelle d’un album de la file d’envoi.
+- Bouton Envoyer à A34g.
+- Le bouton d’envoi ouvre le partage Android / Quick Share avec tous les fichiers audio sélectionnés.

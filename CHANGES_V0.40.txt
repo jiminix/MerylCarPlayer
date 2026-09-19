@@ -1,0 +1,7 @@
+MerylCarPlayer V0.40
+
+- Suppression des onglets/boutons Albums et Envoi en haut.
+- Suppression des noms d’artistes sur les pochettes.
+- Ajout de flèches flottantes haut/bas pour naviguer rapidement.
+- Affichage intégral des pochettes avec ContentScale.Fit dans tous les écrans concernés.
+- Conservation des modes 1/2/3/4 colonnes et de la barre A-Z.

@@ -1,0 +1,9 @@
+MerylCarPlayer V0.34
+
+- Nouveau classement en haut : ARTISTES A→Z ou GENRES.
+- Mode ARTISTES A→Z sélectionné par défaut.
+- Barre alphabet A–Z sur le côté droit en mode artistes.
+- Un appui sur une lettre saute au premier artiste correspondant.
+- Lettres sans artiste grisées.
+- Les 4 choix de colonnes et la recherche restent disponibles.
+- Toutes les fonctions de la V0.33 sont conservées.

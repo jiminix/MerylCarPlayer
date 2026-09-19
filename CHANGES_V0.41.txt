@@ -1,0 +1,7 @@
+MerylCarPlayer V0.41
+
+- Flèche ▲ : remonte désormais d'un écran.
+- Flèche ▼ : descend désormais d'un écran.
+- Navigation alignée sur les rangées de pochettes.
+- Une rangée reste commune entre deux pages pour ne manquer aucune pochette.
+- Compatible avec 1 / 2 / 3 / 4 colonnes.

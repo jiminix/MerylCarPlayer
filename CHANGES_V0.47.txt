@@ -1,0 +1,12 @@
+MerylCarPlayer V0.47
+
+- Ajout du bouton COULEUR dans l'en-tête, à droite du logo.
+- Le bouton ouvre 4 profils visuels basés sur les couleurs du logo :
+  1. ROUGE : #ff3131 / #ffde59 / #1800ad / #ffffff
+  2. JAUNE : #ffde59 / #1800ad / #ffffff / #ff3131
+  3. BLEU  : #1800ad / #ffffff / #ff3131 / #ffde59
+  4. BLANC : #ffffff / #ff3131 / #ffde59 / #1800ad
+- Le fond général reste #202830.
+- Les couleurs changent de rôle sur les boutons sélectionnés, la recherche active,
+  les sélecteurs, les commandes du lecteur et certains accents.
+- Le profil choisi est mémorisé entre les lancements de l'application.

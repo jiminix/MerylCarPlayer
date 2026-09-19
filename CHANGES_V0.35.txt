@@ -1,0 +1,7 @@
+MerylCarPlayer V0.35
+
+- Grille Artistes continue : plus de cases vides entre deux artistes.
+- Le nom du nouvel artiste apparaît centré sur sa première pochette.
+- Bouton ARTISTES A→Z centré explicitement.
+- Bandeau de lecture : mini-pochette ajoutée à gauche.
+- Temps restant du morceau affiché à droite et décrémenté en temps réel.

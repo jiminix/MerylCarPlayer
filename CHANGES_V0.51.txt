@@ -1,0 +1,6 @@
+MerylCarPlayer V0.51
+
+- Bandeau sous le logo passe en rouge #FF3131 pour verifier visuellement la mise a jour.
+- Correction lecteur principal : STOP externe est traite comme PAUSE.
+- Le morceau courant, la pochette et les metadonnees restent donc publies tant qu'un changement n'est pas fait dans MerylCarPlayer.
+- versionCode 50 / versionName 0.51.

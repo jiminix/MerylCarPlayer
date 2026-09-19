@@ -1,0 +1,7 @@
+MerylCarPlayer V0.46
+
+- Remplacement du titre texte MerylCarPlayer dans l'entete par le logo graphique fourni.
+- Conservation du numero de version V0.46 dans l'entete, a droite du logo.
+- Fond principal de l'application passe a #202830.
+- Fond du widget Android passe aussi a #202830.
+- Logo PNG transparent integre comme ressource drawable.

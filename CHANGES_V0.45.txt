@@ -1,0 +1,9 @@
+MerylCarPlayer V0.45
+
+- Ajout d'un vrai widget Android MerylCarPlayer dans la liste des widgets.
+- Widget compact avec pochette, titre, artiste, precedent, lecture/pause et suivant.
+- Synchronisation du widget avec la MediaSession du PlaybackService.
+- Declaration de l'application dans la categorie Android "audio".
+- Ajout de CATEGORY_APP_MUSIC pour aider les launchers/lecteurs externes a reconnaitre MerylCarPlayer comme application musicale.
+- MediaLibraryService conserve la compatibilite MediaBrowserService legacy.
+- Toute la file de lecture active est maintenant exposee au navigateur multimedia externe, pas seulement le morceau courant.

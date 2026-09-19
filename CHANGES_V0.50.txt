@@ -1,0 +1,6 @@
+MerylCarPlayer V0.50
+
+- Widget : le dernier morceau reste affiche apres un STOP ou l'arret temporaire de la session.
+- La pochette, l'artiste, l'album et le titre sont memorises localement.
+- L'affichage n'est remplace que lorsqu'un nouveau morceau devient courant dans MerylCarPlayer.
+- Le bouton lecture repasse sur PLAY lorsque la lecture n'est plus active, sans effacer les informations du morceau.

@@ -1,0 +1,6 @@
+MerylCarPlayer V0.39
+
+- Le bouton de scan affiche désormais une barre de progression déterminée.
+- Affichage du pourcentage de 0 à 100 % pendant le scan.
+- La progression suit les étapes réelles : détection MediaStore, lecture des changements, mise à jour de l’index et reconstruction des albums.
+- Les autres chargements conservent leur indicateur habituel.
