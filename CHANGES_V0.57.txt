@@ -1,0 +1,10 @@
+MerylCarPlayer V0.57 TEST
+
+- Nouveau bandeau Meryl Car Audio fourni par Jim.
+- Appui long : affiche les autres albums de l'artiste en miniatures.
+- Pochette principale et albums associés entourés en jaune pour identifier le groupe.
+- La zone des mini-albums est elle aussi entourée.
+- Un clic ailleurs referme le groupe déplié.
+- Clic miniature : lecture puis fermeture du groupe.
+- Double clic : menu puis fermeture du groupe.
+- Identité Android TEST conservée pour installation parallèle avec la V0.52.
