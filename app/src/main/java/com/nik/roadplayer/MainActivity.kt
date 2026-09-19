@@ -24,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -405,7 +406,7 @@ private fun MerylCarPlayerApp() {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.56")
+            PlayerHeader(version = "V0.57")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -1918,7 +1919,17 @@ private fun AlbumGrid(
         result
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(expandedArtist) {
+                if (expandedArtist != null) {
+                    detectTapGestures(
+                        onTap = { expandedArtist = null }
+                    )
+                }
+            }
+    ) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
             state = gridState,
@@ -1968,6 +1979,7 @@ private fun AlbumGrid(
                 }
                 groupedArtists.forEach { (artist, artistAlbums) ->
                     val representativeAlbum = artistAlbums.first()
+                    val isExpandedArtist = expandedArtist == artist
                     item(key = "artist-" + representativeAlbum.key) {
                         AlbumCover(
                             album = representativeAlbum,
@@ -1976,10 +1988,29 @@ private fun AlbumGrid(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
+                                .then(
+                                    if (isExpandedArtist) {
+                                        Modifier
+                                            .border(
+                                                width = 3.dp,
+                                                color = Color(0xFFFFDE59),
+                                                shape = RoundedCornerShape(7.dp)
+                                            )
+                                            .padding(3.dp)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                                 .pointerInput(artist, representativeAlbum.key, artistAlbums.size) {
                                     detectTapGestures(
-                                        onTap = { onAlbumClick(representativeAlbum) },
-                                        onDoubleTap = { onAlbumLongPress(representativeAlbum) },
+                                        onTap = {
+                                            if (expandedArtist != artist) expandedArtist = null
+                                            onAlbumClick(representativeAlbum)
+                                        },
+                                        onDoubleTap = {
+                                            expandedArtist = null
+                                            onAlbumLongPress(representativeAlbum)
+                                        },
                                         onLongPress = {
                                             expandedArtist =
                                                 if (artistAlbums.size > 1 && expandedArtist != artist)
@@ -1998,7 +2029,13 @@ private fun AlbumGrid(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 3.dp),
+                                    .border(
+                                        width = 2.dp,
+                                        color = Color(0xFFFFDE59),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .background(Color(0x221800AD), RoundedCornerShape(8.dp))
+                                    .padding(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(spacing)
                             ) {
                                 otherAlbums.chunked(columns * 2).forEach { rowAlbums ->
@@ -2015,10 +2052,22 @@ private fun AlbumGrid(
                                                 modifier = Modifier
                                                     .weight(1f)
                                                     .aspectRatio(1f)
+                                                    .border(
+                                                        width = 1.5.dp,
+                                                        color = Color(0xFFFFDE59),
+                                                        shape = RoundedCornerShape(5.dp)
+                                                    )
+                                                    .padding(2.dp)
                                                     .pointerInput(album.key) {
                                                         detectTapGestures(
-                                                            onTap = { onAlbumClick(album) },
-                                                            onDoubleTap = { onAlbumLongPress(album) }
+                                                            onTap = {
+                                                                expandedArtist = null
+                                                                onAlbumClick(album)
+                                                            },
+                                                            onDoubleTap = {
+                                                                expandedArtist = null
+                                                                onAlbumLongPress(album)
+                                                            }
                                                         )
                                                     }
                                             )
