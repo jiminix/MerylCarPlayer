@@ -9,11 +9,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.nik.roadplayer"
+        applicationId = "com.nik.roadplayer.test"
         minSdk = 29
         targetSdk = 36
-        versionCode = 54
-        versionName = "0.55"
+        versionCode = 56
+        versionName = "0.56"
     }
 
     buildFeatures {

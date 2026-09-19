@@ -38,6 +38,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MerylCarPlayer-V0.54-debug
+          name: MerylCarPlayer-V0.56-TEST-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

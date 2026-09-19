@@ -1,0 +1,7 @@
+MerylCarPlayer V0.56 TEST (installation parallèle)
+- applicationId com.nik.roadplayer.test : distinct de la V0.52 installée.
+- Nom visible MerylCarPlayer TEST et icône bleue avec un T jaune.
+- En-tête V0.56, aucun besoin de désinstaller la V0.52.
+- Geste des pochettes dans ARTISTES et GENRES : clic lecture,
+  double clic menu, clic long autres albums deux fois plus petits.
+- Les données et autorisations de cette version test sont indépendantes.
