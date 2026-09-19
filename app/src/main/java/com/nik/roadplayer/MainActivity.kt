@@ -406,7 +406,7 @@ private fun MerylCarPlayerApp() {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.61")
+            PlayerHeader(version = "V0.62")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -969,7 +969,7 @@ private fun PlayerHeader(version: String) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Image(
-            painter = painterResource(id = R.drawable.merylcarplayer_logo),
+            painter = painterResource(id = R.drawable.merylcar_audio_banner),
             contentDescription = "MerylCarPlayer",
             modifier = Modifier
                 .weight(1f)

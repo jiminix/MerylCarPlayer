@@ -1,0 +1,5 @@
+MerylCarPlayer V0.62 TEST
+- Nouveau bandeau « MERYL CAR AUDIO — le lecteur média des blaireaux ».
+- Quand un artiste est déplié, la pochette principale et le bloc des albums associés sont encadrés en jaune.
+- Un clic ailleurs dans la zone de bibliothèque referme les albums dépliés.
+- Gestes conservés : clic = lecture, double clic = menu, appui long = autres albums.
