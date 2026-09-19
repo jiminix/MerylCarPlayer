@@ -5,9 +5,6 @@ on:
   push:
     branches: [ main ]
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,25 +17,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Apply V0.54 artist-cover interactions
-        shell: bash
-        run: |
-          python3 scripts/apply_v054.py
-          python3 - <<'PY'
-          from pathlib import Path
-          source_path = Path("app/src/main/java/com/nik/roadplayer/MainActivity.kt")
-          text = source_path.read_text(encoding="utf-8")
-          text = text.replace(r'Regex("\s+")', r'Regex("\\s+")')
-          source_path.write_text(text, encoding="utf-8")
-          PY
-          git add app/src/main/java/com/nik/roadplayer/MainActivity.kt app/build.gradle.kts CHANGES_V0.54.txt
-          if ! git diff --cached --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Implement V0.54 single, double and long-press gestures"
-            git push origin HEAD:main
-          fi
 
       - name: Install Android SDK 36
         shell: bash
