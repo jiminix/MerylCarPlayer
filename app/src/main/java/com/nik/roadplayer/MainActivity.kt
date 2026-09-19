@@ -405,7 +405,7 @@ private fun MerylCarPlayerApp() {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.53")
+            PlayerHeader(version = "V0.54")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -459,8 +459,11 @@ private fun MerylCarPlayerApp() {
                                     currentMetadata?.albumTitle?.toString().orEmpty().equals(album.title, ignoreCase = true) &&
                                     currentMetadata?.albumArtist?.toString().orEmpty().equals(album.artist, ignoreCase = true)
 
-                                selectedAlbum = album
-                                if (sameAlbum) return@AlbumGrid
+                                // Lecture directe sans quitter la grille des pochettes.
+                                if (sameAlbum) {
+                                    if (!activeController.isPlaying) activeController.play()
+                                    return@AlbumGrid
+                                }
 
                                 coroutineScope.launch {
                                     val artwork = repository.albumArtworkBytes(album)
@@ -1839,11 +1842,21 @@ private fun AlbumGrid(
     val scope = rememberCoroutineScope()
 
     val artistGroups = remember(albums) {
+        // Regroupe également les tags avec des majuscules ou espaces différents.
         albums
-            .groupBy { it.artist.trim().ifBlank { "Artiste inconnu" } }
+            .groupBy {
+                it.artist.trim().ifBlank { "Artiste inconnu" }
+                    .replace(Regex("\s+"), " ")
+                    .lowercase(java.util.Locale.ROOT)
+            }
             .entries
-            .sortedBy { it.key.lowercase() }
-            .map { entry -> entry.key to entry.value.sortedBy { it.title.lowercase() } }
+            .sortedBy { it.key }
+            .map { entry ->
+                val sorted = entry.value.sortedBy { it.title.lowercase(java.util.Locale.ROOT) }
+                val label = sorted.firstOrNull()?.artist?.trim().orEmpty()
+                    .ifBlank { "Artiste inconnu" }
+                label to sorted
+            }
     }
 
     // V0.53 : la vue Artistes n'affiche qu'une seule pochette par artiste.
@@ -1922,13 +1935,9 @@ private fun AlbumGrid(
             verticalArrangement = Arrangement.spacedBy(spacing)
         ) {
             if (groupMode == "artist") {
-                val openArtist = expandedArtist
-                if (openArtist == null) {
-                    items(
-                        items = artistRepresentatives,
-                        key = { "artist-${it.first}" }
-                    ) { (artist, representativeAlbum) ->
-                        val artistAlbumCount = artistGroups.firstOrNull { it.first == artist }?.second?.size ?: 1
+                artistRepresentatives.forEach { (artist, representativeAlbum) ->
+                    val artistAlbums = artistGroups.firstOrNull { it.first == artist }?.second.orEmpty()
+                    item(key = "artist-" + representativeAlbum.key) {
                         AlbumCover(
                             album = representativeAlbum,
                             repository = repository,
@@ -1936,36 +1945,61 @@ private fun AlbumGrid(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
-                                .pointerInput(artist, representativeAlbum.key, artistAlbumCount) {
+                                .pointerInput(artist, representativeAlbum.key, artistAlbums.size) {
                                     detectTapGestures(
                                         onTap = { onAlbumClick(representativeAlbum) },
-                                        onDoubleTap = {
-                                            if (artistAlbumCount > 1) expandedArtist = artist
-                                        },
-                                        onLongPress = { onAlbumLongPress(representativeAlbum) }
+                                        onDoubleTap = { onAlbumLongPress(representativeAlbum) },
+                                        onLongPress = {
+                                            expandedArtist = if (artistAlbums.size > 1 &&
+                                                expandedArtist != artist) artist else null
+                                        }
                                     )
                                 }
                         )
                     }
-                } else {
-                    items(
-                        items = expandedArtistAlbums,
-                        key = { it.key }
-                    ) { album ->
-                        AlbumCover(
-                            album = album,
-                            repository = repository,
-                            artworkRevision = artworkRevision,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f)
-                                .pointerInput(album.key) {
-                                    detectTapGestures(
-                                        onTap = { onAlbumClick(album) },
-                                        onLongPress = { onAlbumLongPress(album) }
-                                    )
+                    if (expandedArtist == artist && artistAlbums.size > 1) {
+                        item(
+                            key = "artist-more-" + representativeAlbum.key,
+                            span = { GridItemSpan(columns) }
+                        ) {
+                            val otherAlbums = artistAlbums.filterNot {
+                                it.key == representativeAlbum.key
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp),
+                                verticalArrangement = Arrangement.spacedBy(spacing)
+                            ) {
+                                otherAlbums.chunked(columns * 2).forEach { rowAlbums ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(spacing)
+                                    ) {
+                                        rowAlbums.forEach { album ->
+                                            AlbumCover(
+                                                album = album,
+                                                repository = repository,
+                                                artworkRevision = artworkRevision,
+                                                compact = true,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .aspectRatio(1f)
+                                                    .pointerInput(album.key) {
+                                                        detectTapGestures(
+                                                            onTap = { onAlbumClick(album) },
+                                                            onDoubleTap = { onAlbumLongPress(album) }
+                                                        )
+                                                    }
+                                            )
+                                        }
+                                        repeat(columns * 2 - rowAlbums.size) {
+                                            Spacer(Modifier.weight(1f))
+                                        }
+                                    }
                                 }
-                        )
+                            }
+                        }
                     }
                 }
             } else {
@@ -2241,7 +2275,8 @@ private fun AlbumCover(
     album: Album,
     repository: MusicRepository,
     modifier: Modifier = Modifier,
-    artworkRevision: Int = 0
+    artworkRevision: Int = 0,
+    compact: Boolean = false
 ) {
     val bitmap by produceState<Bitmap?>(
         initialValue = coverCache.get(album.key),
@@ -2267,7 +2302,7 @@ private fun AlbumCover(
                 contentScale = ContentScale.Fit
             )
         } else {
-            Text("♪", fontSize = 52.sp, color = Color(0xFF666666))
+            Text("♪", fontSize = if (compact) 25.sp else 52.sp, color = Color(0xFF666666))
         }
 
     }

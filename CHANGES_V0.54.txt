@@ -1,0 +1,8 @@
+MerylCarPlayer V0.54
+
+- Une seule pochette par artiste dans la vue Artistes (casse/espaces normalisés).
+- Clic simple : lecture directe, sans quitter la grille.
+- Double clic : menu de la pochette.
+- Clic long : afficher ou masquer les autres pochettes sous l'artiste, en demi-taille.
+- Clic sur une mini-pochette : lecture de cet album.
+- versionCode 53 / versionName 0.54.
