@@ -7,6 +7,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,6 +19,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Restore and verify the new logo PNG
+        shell: bash
+        run: |
+          python3 scripts/repair_logo_v060.py
+          git add app/src/main/res/drawable/merylcarplayer_logo.png
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Restore verified Meryl Car Audio banner image"
+            git push origin HEAD:main
+          fi
 
       - name: Install Android SDK 36
         shell: bash
@@ -57,6 +71,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MerylCarPlayer-V0.59-TEST-stable
+          name: MerylCarPlayer-V0.60-TEST-fixed-banner
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

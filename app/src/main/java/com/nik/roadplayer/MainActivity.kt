@@ -405,7 +405,7 @@ private fun MerylCarPlayerApp() {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.59")
+            PlayerHeader(version = "V0.60")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {

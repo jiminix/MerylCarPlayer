@@ -1,0 +1,5 @@
+MerylCarPlayer V0.60 TEST
+- Corrige le bandeau corrompu qui faisait planter les versions TEST 0.57 et 0.59.
+- Restaure le nouveau bandeau « Meryl Car Audio » après contrôle d'intégrité PNG et de son empreinte originale.
+- Conserve l'identité Android TEST, installable sans supprimer la V0.52.
+- Conserve les modifications du lecteur déjà intégrées au dépôt.
