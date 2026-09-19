@@ -1,0 +1,7 @@
+MerylCarPlayer V0.55
+- Une pochette représentative par artiste dans ARTISTES et GENRES.
+- Clic : lecture de l'album affiché.
+- Double clic : menu de la pochette.
+- Appui long : affiche ou masque les autres albums de cet artiste.
+- Mini-pochettes deux fois plus petites, clic pour lecture.
+- Chaque artiste est affiché dans le genre de son album représentatif.
