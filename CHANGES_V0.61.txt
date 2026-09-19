@@ -1,0 +1,8 @@
+MerylCarPlayer V0.61 TEST
+- Nouveau bandeau Meryl Car Audio en PNG réparé et vérifié intégralement.
+- En vue Artistes comme en vue Genres : un album principal par artiste.
+- Clic principal : lecture. Double clic : menu. Appui long : déplier les autres albums.
+- Encadrement jaune autour de la pochette principale, des pochettes associées et du groupe.
+- Clic ailleurs pour replier le groupe ; mini-pochette au clic : lecture et repli.
+- Correction du gestionnaire de gestes du conteneur : handler actif sans coroutine conditionnelle qui se termine immédiatement.
+- Identité Android MerylCarPlayer TEST conservée.
