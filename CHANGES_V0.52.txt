@@ -1,0 +1,6 @@
+MerylCarPlayer V0.52
+
+- Logo descendu de 6 dp pour venir légèrement chevaucher le trait jaune.
+- Trait sous le logo restauré en jaune #FFDE59.
+- Bouton Home compacté à une icône carrée 38 dp ; le bouton Genres garde le reste de la largeur.
+- versionCode 51 / versionName 0.52.

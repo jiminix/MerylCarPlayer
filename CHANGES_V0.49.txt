@@ -1,0 +1,7 @@
+MerylCarPlayer V0.49
+
+- Sélecteur d’affichage compact : un seul bouton carré reste visible ; un menu flottant horizontal permet de choisir 1, 2, 3 ou 4 colonnes.
+- Widget : récupération immédiate de la session de lecture déjà active lors de l’ajout/rafraîchissement.
+- Widget : pochette d’album agrandie et affichage Artiste / Album / Titre.
+- Widget : textes configurés en défilement horizontal (marquee) lorsqu’ils dépassent.
+- Widget : secours par pochette embarquée du fichier audio si artworkData n’est pas disponible.

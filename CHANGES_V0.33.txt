@@ -1,0 +1,13 @@
+MerylCarPlayer V0.33
+
+- Bibliothèque séparée par genre, puis par artiste.
+- Les albums Various Artists / Artistes divers sont classés en Soundtracks.
+- Lecture du tag GENRE des MP3/FLAC et reconstruction unique du cache au premier lancement V0.33.
+- Miniatures réduites : 3 colonnes par défaut.
+- Le bouton + est retiré de la barre principale.
+- 4 choix d'affichage à la place : 1, 2, 3 ou 4 colonnes.
+- Le titre du morceau en cours défile dans la playlist.
+- Nouveau bandeau « lecture en cours » en bas avec artiste + titre défilants.
+- La lecture continue lorsqu'on revient à la bibliothèque ou change d'onglet.
+- Cliquer à nouveau sur l'album déjà en cours ne relance plus la lecture.
+- La file de lecture n'est remplacée que lorsqu'un autre album est ouvert.

@@ -1,0 +1,6 @@
+MerylCarPlayer V0.43
+
+- Synchronisation renforcée avec le lecteur principal / lecteur système Android.
+- La MediaSession de MerylCarPlayer est maintenant aussi publiée via l’interface MediaBrowserService Android.
+- Le morceau courant, la pochette, le titre, l’artiste, lecture/pause et précédent/suivant restent pilotés par la même session Media3.
+- Aucun changement sur la bibliothèque, la grille, la vue Playlist ou la lecture continue de la V0.42.

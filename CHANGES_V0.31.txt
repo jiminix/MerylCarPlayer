@@ -1,0 +1,6 @@
+MerylCarPlayer V0.31
+
+- Affichage de 2 colonnes de pochettes dans la bibliothèque.
+- Nom des artistes plus petit et taille adaptative pour tenir sur une ligne.
+- Suppression du sélecteur 3/4 colonnes afin de conserver 2 colonnes fixes.
+- Toutes les fonctions de la V0.30 sont conservées.

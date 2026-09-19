@@ -1,0 +1,8 @@
+MerylCarPlayer V0.44
+
+- Correction reelle de la prise en charge du lecteur principal Android.
+- PlaybackService passe de MediaSessionService a MediaLibraryService.
+- Declaration correcte des interfaces MediaLibraryService + MediaBrowserService legacy.
+- La MediaSession reste la source unique de lecture et de metadonnees.
+- Exposition du morceau actif aux lecteurs/launchers externes qui interrogent la bibliotheque media.
+- Audio focus laisse a ExoPlayer avec AUDIOFOCUS_GAIN pour faire ceder le lecteur precedent.

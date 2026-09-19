@@ -1,0 +1,6 @@
+MerylCarPlayer V0.37
+
+- Affichage flottant du nombre total d’albums dans la bibliothèque.
+- Le compteur apparaît centré au-dessus des pochettes.
+- Le nombre affiché correspond à la bibliothèque complète, même pendant une recherche.
+- L’espace supérieur de la grille a été ajusté pour ne pas masquer les premières pochettes.

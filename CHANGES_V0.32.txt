@@ -1,0 +1,6 @@
+MerylCarPlayer V0.32
+
+- À l’ouverture, suppression du message « Lecture de la discothèque… ».
+- Affichage d’une barre de progression animée au centre pendant le chargement initial de la bibliothèque.
+- Barre fine inférieure conservée pour les rafraîchissements et recherches.
+- Aucun autre comportement modifié.

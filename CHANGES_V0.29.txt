@@ -1,0 +1,13 @@
+MerylCarPlayer V0.29
+====================
+
+- Nouveau nom visible : MerylCarPlayer.
+- Version affichée en haut : MerylCarPlayer V0.29.
+- Version Android : versionName 0.29 / versionCode 28.
+- Nouveau bouton + à côté de la recherche.
+- Le bouton + ouvre le sélecteur de dossiers Android.
+- Sélectionner un dossier d'album sous Music/ sur la carte SD.
+- Le dossier choisi est forcé dans MediaScanner puis la bibliothèque est rafraîchie.
+- Le bouton ↻ et les fonctions existantes sont conservés.
+
+Note : l'application conserve le package com.nik.roadplayer et les anciennes clés de préférences/cache pour préserver les données et réglages lors d'une mise à jour.

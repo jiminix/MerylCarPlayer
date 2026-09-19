@@ -1,0 +1,9 @@
+MerylCarPlayer V0.48
+
+- Profil JAUNE valide et fixe : #ffde59 / #1800ad / #ffffff / #ff3131.
+- Suppression du bouton COULEUR et du changement de profil.
+- Le bouton ARTISTES devient un bouton HOME (symbole maison) et garde le retour a la vue artistes.
+- Le selecteur d affichage 1/2/3/4 remplace les chiffres par 1/2/3/4 petits carres.
+- Compatibilite lecteur systeme renforcee : gestion directe de MEDIA_BUTTON, MediaLibraryService / MediaBrowserService conserves.
+- Widget aligne sur le profil JAUNE.
+- Autorisation de notification demandee sur Android 13+ pour les launchers tiers qui lisent la notification media.

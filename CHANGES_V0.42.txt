@@ -1,0 +1,6 @@
+MerylCarPlayer V0.42
+
+- Les boutons ▲ / ▼ conservent exactement la navigation page par page de la V0.41.
+- Après chaque déplacement, les rangées entièrement visibles sont recentrées verticalement.
+- La grille garde des rangées complètes pour éviter toute pochette coupée ou oubliée.
+- En mode Artistes A→Z, les marges gauche et droite sont maintenant symétriques : les pochettes sont centrées horizontalement malgré la barre alphabétique.

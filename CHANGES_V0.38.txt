@@ -1,0 +1,7 @@
+MerylCarPlayer V0.38
+
+- GENRES ouvre une fenêtre de choix.
+- Choix : Albums / Soundtrack / Podcast.
+- Filtrage de la bibliothèque selon la catégorie choisie.
+- Reconnaissance explicite du tag Podcast.
+- ARTISTES A→Z inchangé.
