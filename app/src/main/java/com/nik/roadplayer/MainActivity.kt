@@ -405,7 +405,7 @@ private fun MerylCarPlayerApp() {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.54")
+            PlayerHeader(version = "V0.55")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -1864,7 +1864,7 @@ private fun AlbumGrid(
     var expandedArtist by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(groupMode) {
-        if (groupMode != "artist") expandedArtist = null
+        expandedArtist = null
     }
 
     val artistRepresentatives = remember(artistGroups) {
@@ -1886,27 +1886,25 @@ private fun AlbumGrid(
         }
     }
 
-    BackHandler(enabled = groupMode == "artist" && expandedArtist != null) {
+    BackHandler(enabled = expandedArtist != null) {
         expandedArtist = null
     }
 
-    val genreGroups = remember(albums) {
-        albums
-            .groupBy { it.genre.trim().ifBlank { "Autres" } }
+    // Chaque artiste n'apparaît qu'une fois, y compris en vue GENRES.
+    // Le classement du genre dépend de l'album représentatif, mais l'appui long
+    // permet de retrouver tous les albums de l'artiste dans la catégorie affichée.
+    val genreGroups = remember(artistGroups) {
+        artistGroups
+            .groupBy { (_, artistAlbums) ->
+                artistAlbums.firstOrNull()?.genre?.trim().orEmpty().ifBlank { "Autres" }
+            }
             .entries
             .sortedWith(
-                compareBy<Map.Entry<String, List<Album>>> { if (it.key.equals("Autres", true)) 1 else 0 }
-                    .thenBy { it.key.lowercase() }
+                compareBy<Map.Entry<String, List<Pair<String, List<Album>>>>> {
+                    if (it.key.equals("Autres", ignoreCase = true)) 1 else 0
+                }.thenBy { it.key.lowercase(java.util.Locale.ROOT) }
             )
-            .map { genreEntry ->
-                genreEntry.key to genreEntry.value
-                    .groupBy { it.artist.trim().ifBlank { "Artiste inconnu" } }
-                    .entries
-                    .sortedBy { it.key.lowercase() }
-                    .map { artistEntry ->
-                        artistEntry.key to artistEntry.value.sortedBy { it.title.lowercase() }
-                    }
-            }
+            .map { it.key to it.value }
     }
 
     val letterIndexes = remember(artistRepresentatives) {
@@ -1934,9 +1932,42 @@ private fun AlbumGrid(
             horizontalArrangement = Arrangement.spacedBy(spacing),
             verticalArrangement = Arrangement.spacedBy(spacing)
         ) {
-            if (groupMode == "artist") {
-                artistRepresentatives.forEach { (artist, representativeAlbum) ->
-                    val artistAlbums = artistGroups.firstOrNull { it.first == artist }?.second.orEmpty()
+            // Même disposition et mêmes gestes pour ARTISTES et GENRES.
+            // En GENRES, un artiste n'est affecté qu'au genre de son album représentatif.
+            val visibleGroups = if (groupMode == "artist") {
+                listOf("" to artistGroups)
+            } else {
+                genreGroups
+            }
+            visibleGroups.forEach { (genre, groupedArtists) ->
+                if (genre.isNotEmpty()) {
+                    val albumCount = groupedArtists.sumOf { (_, artistAlbums) -> artistAlbums.size }
+                    item(key = "genre-header-$genre", span = { GridItemSpan(columns) }) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 9.dp, bottom = 3.dp, start = 2.dp, end = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = genre,
+                                color = Color(0xFFD7B66F),
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "$albumCount LP${if (albumCount > 1) "s" else ""}",
+                                color = Color(0xFF777777),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                groupedArtists.forEach { (artist, artistAlbums) ->
+                    val representativeAlbum = artistAlbums.first()
                     item(key = "artist-" + representativeAlbum.key) {
                         AlbumCover(
                             album = representativeAlbum,
@@ -1950,8 +1981,9 @@ private fun AlbumGrid(
                                         onTap = { onAlbumClick(representativeAlbum) },
                                         onDoubleTap = { onAlbumLongPress(representativeAlbum) },
                                         onLongPress = {
-                                            expandedArtist = if (artistAlbums.size > 1 &&
-                                                expandedArtist != artist) artist else null
+                                            expandedArtist =
+                                                if (artistAlbums.size > 1 && expandedArtist != artist)
+                                                    artist else null
                                         }
                                     )
                                 }
@@ -1962,9 +1994,7 @@ private fun AlbumGrid(
                             key = "artist-more-" + representativeAlbum.key,
                             span = { GridItemSpan(columns) }
                         ) {
-                            val otherAlbums = artistAlbums.filterNot {
-                                it.key == representativeAlbum.key
-                            }
+                            val otherAlbums = artistAlbums.filterNot { it.key == representativeAlbum.key }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2002,63 +2032,8 @@ private fun AlbumGrid(
                         }
                     }
                 }
-            } else {
-                genreGroups.forEach { (genre, groupedArtists) ->
-                    val albumCount = groupedArtists.sumOf { it.second.size }
-                    item(
-                        key = "genre-header-$genre",
-                        span = { GridItemSpan(columns) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 9.dp, bottom = 3.dp, start = 2.dp, end = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = genre,
-                                color = Color(0xFFD7B66F),
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = "$albumCount LP${if (albumCount > 1) "s" else ""}",
-                                color = Color(0xFF777777),
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    val genreAlbumsFlat = groupedArtists.flatMap { (artist, artistAlbums) ->
-                        artistAlbums.mapIndexed { index, album ->
-                            album to artist.takeIf { index == 0 }
-                        }
-                    }
-
-                    items(
-                        items = genreAlbumsFlat,
-                        key = { it.first.key }
-                    ) { (album, artistLabel) ->
-                        AlbumCover(
-                            album = album,
-                            repository = repository,
-                            artworkRevision = artworkRevision,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f)
-                                .pointerInput(album.key) {
-                                    detectTapGestures(
-                                        onTap = { onAlbumClick(album) },
-                                        onLongPress = { onAlbumLongPress(album) }
-                                    )
-                                }
-                        )
-                    }
-                }
             }
+
         }
 
         Box(

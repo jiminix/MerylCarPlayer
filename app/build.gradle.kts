@@ -12,8 +12,8 @@ android {
         applicationId = "com.nik.roadplayer"
         minSdk = 29
         targetSdk = 36
-        versionCode = 53
-        versionName = "0.54"
+        versionCode = 54
+        versionName = "0.55"
     }
 
     buildFeatures {
