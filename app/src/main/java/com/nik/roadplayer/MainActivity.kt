@@ -1846,7 +1846,7 @@ private fun AlbumGrid(
         albums
             .groupBy {
                 it.artist.trim().ifBlank { "Artiste inconnu" }
-                    .replace(Regex("\s+"), " ")
+                    .replace(Regex("\\s+"), " ")
                     .lowercase(java.util.Locale.ROOT)
             }
             .entries
