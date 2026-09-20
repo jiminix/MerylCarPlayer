@@ -224,10 +224,35 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MerylCarPlayerApp() {
     val context = LocalContext.current
+    // Construire l'index et les caches volumineux hors du thread graphique.
+    // Afficher le chargement immédiatement, même avant l'ouverture de la bibliothèque.
+    var repository by remember { mutableStateOf<MusicRepository?>(null) }
+    LaunchedEffect(context.applicationContext) {
+        repository = withContext(Dispatchers.IO) {
+            MusicRepository(context.applicationContext)
+        }
+    }
+    val readyRepository = repository
+    if (readyRepository == null) {
+        CompositionLocalProvider(LocalUiColorProfile provides UiColorProfiles[1]) {
+            Column(
+                modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
+            ) {
+                PlayerHeader(version = "V0.64")
+                StartupLoadingBar(progress = null)
+            }
+        }
+        return
+    }
+    MerylCarPlayerContent(repository = readyRepository)
+}
+
+@Composable
+private fun MerylCarPlayerContent(repository: MusicRepository) {
+    val context = LocalContext.current
     // V0.48 : le profil JAUNE est maintenant le profil unique et fixe.
     val colorProfile = UiColorProfiles[1]
 
-    val repository = remember { MusicRepository(context.applicationContext) }
     val coroutineScope = rememberCoroutineScope()
 
     var albums by remember { mutableStateOf<List<Album>>(emptyList()) }
