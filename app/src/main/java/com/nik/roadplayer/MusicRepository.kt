@@ -165,7 +165,7 @@ class MusicRepository(private val context: Context) {
             // MediaStore donne immédiatement les informations essentielles.
             return@withContext loadAlbumsFromSdMusic(
                 onProgress = onProgress,
-                fastMetadataOnly = !includePhysicalChanges && trackIndex.isEmpty()
+                fastMetadataOnly = !includePhysicalChanges
             )
         }
 
