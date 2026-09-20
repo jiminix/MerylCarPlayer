@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.64")
+                PlayerHeader(version = "V0.65")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -410,13 +410,25 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
         }
     }
 
-    // Le scan de démarrage affiche sa progression, y compris lors du premier lancement.
+    // Affichage rapide du cache local, puis contrôle incrémental en arrière-plan.
+    // Le contrôle physique des dossiers reste disponible via le bouton SCAN.
+    var startupScanInProgress by remember { mutableStateOf(false) }
     LaunchedEffect(permissionGranted) {
         if (permissionGranted) {
             loading = true
+            startupScanInProgress = true
             scanProgress = 0f
             try {
-                val indexedAlbums = repository.quickRefreshAlbumsFromSdMusic { progress ->
+                val cachedAlbums = repository.cachedAlbumsFromSdMusic()
+                if (cachedAlbums.isNotEmpty()) {
+                    albums = cachedAlbums
+                    playlists = repository.listPlaylists()
+                    loading = false
+                    refreshing = true
+                }
+                val indexedAlbums = repository.quickRefreshAlbumsFromSdMusic(
+                    includePhysicalChanges = false
+                ) { progress ->
                     withContext(Dispatchers.Main) {
                         scanProgress = progress.coerceIn(0f, 1f) * 0.95f
                     }
@@ -427,7 +439,9 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 scanProgress = 1f
             } finally {
                 loading = false
+                refreshing = false
                 delay(250L)
+                startupScanInProgress = false
                 scanProgress = null
             }
         }
@@ -507,7 +521,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.64")
+            PlayerHeader(version = "V0.65")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -712,7 +726,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (loading) "Chargement de la bibliothèque" else "Scan de la bibliothèque",
+                        text = if (startupScanInProgress) "Vérification de la bibliothèque" else "Scan de la bibliothèque",
                         color = Color(0xFFEDEDED),
                         fontSize = 11.sp
                     )
