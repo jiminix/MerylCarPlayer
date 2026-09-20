@@ -102,7 +102,32 @@ class MusicRepository(private val context: Context) {
      * première fois, ou comme solution de repli si MediaStore ne fournit pas les
      * informations incrémentales.
      */
+    /**
+     * Restitue immédiatement la bibliothèque connue sans analyser les fichiers.
+     * Le contrôle incrémental continue en arrière-plan après l'affichage.
+     * Aucun état du disque ou de l'index n'est modifié ici.
+     */
+    suspend fun cachedAlbumsFromSdMusic(): List<Album> = withContext(Dispatchers.IO) {
+        if (trackIndex.isEmpty()) return@withContext emptyList()
+        val volumes = MediaStore.getExternalVolumeNames(context)
+            .filter { it != MediaStore.VOLUME_EXTERNAL_PRIMARY }
+        if (volumes.isEmpty()) return@withContext emptyList()
+        val prefixes = volumes.map { "$it:" }
+        val tracks = trackIndex.entries.asSequence()
+            .filter { (key, _) -> prefixes.any { key.startsWith(it) } }
+            .map { (_, cached) ->
+                TaggedTrack(
+                    track = cached.track,
+                    groupAlbumTitle = cached.groupAlbumTitle,
+                    groupIdentity = cached.groupIdentity
+                )
+            }
+            .toList()
+        if (tracks.isEmpty()) emptyList() else buildAlbumsFromTaggedTracks(tracks)
+    }
+
     suspend fun quickRefreshAlbumsFromSdMusic(
+        includePhysicalChanges: Boolean = true,
         onProgress: suspend (Float) -> Unit = {}
     ): List<Album> = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
@@ -120,7 +145,10 @@ class MusicRepository(private val context: Context) {
         // sur la microSD mais encore absents de MediaStore. On ne regarde que les
         // dossiers de premier niveau de Music/ ; seuls les nouveaux/modifiés sont
         // envoyés au MediaScanner. Si rien n'a changé, ce contrôle est quasi instantané.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && trackIndex.isNotEmpty()) {
+        if (includePhysicalChanges &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            trackIndex.isNotEmpty()
+        ) {
             ensurePhysicalMusicChangesIndexed(volumes)
         }
         onProgress(0.16f)
