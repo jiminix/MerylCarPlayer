@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V0.67 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V0.69 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.68")
+                PlayerHeader(version = "V0.69")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -427,7 +427,11 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 } else {
                     startupScanInProgress = true
                     scanProgress = 0f
-                    val indexedAlbums = repository.quickRefreshAlbumsFromSdMusic { progress ->
+                    // Premier lancement : construire l'index via MediaStore sans ouvrir
+                    // chaque fichier MP3/FLAC. Le scan approfondi reste réservé à SCAN.
+                    val indexedAlbums = repository.quickRefreshAlbumsFromSdMusic(
+                        includePhysicalChanges = false
+                    ) { progress ->
                         withContext(Dispatchers.Main) {
                             scanProgress = progress.coerceIn(0f, 1f)
                         }
@@ -519,7 +523,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.68")
+            PlayerHeader(version = "V0.69")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
