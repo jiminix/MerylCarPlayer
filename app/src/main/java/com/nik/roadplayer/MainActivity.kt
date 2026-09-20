@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V0.63 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V0.67 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.66")
+                PlayerHeader(version = "V0.67")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -410,37 +410,35 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
         }
     }
 
-    // Affichage rapide du cache local, puis contrôle incrémental en arrière-plan.
-    // Le contrôle physique des dossiers reste disponible via le bouton SCAN.
+    // Un index existant permet l'affichage immédiat sans aucun scan au démarrage.
+    // Pour découvrir de nouveaux morceaux ou une carte SD modifiée, utiliser SCAN.
+    // Le premier lancement sans index conserve le scan complet et sa barre de progression.
     var startupScanInProgress by remember { mutableStateOf(false) }
     LaunchedEffect(permissionGranted) {
         if (permissionGranted) {
             loading = true
-            startupScanInProgress = true
-            scanProgress = 0f
             try {
                 val cachedAlbums = repository.cachedAlbumsFromSdMusic()
                 if (cachedAlbums.isNotEmpty()) {
                     albums = cachedAlbums
                     playlists = repository.listPlaylists()
-                    loading = false
-                    refreshing = true
-                }
-                val indexedAlbums = repository.quickRefreshAlbumsFromSdMusic(
-                    includePhysicalChanges = false
-                ) { progress ->
-                    withContext(Dispatchers.Main) {
-                        scanProgress = progress.coerceIn(0f, 1f) * 0.95f
+                    // Ne pas relancer quickRefreshAlbumsFromSdMusic à chaque ouverture :
+                    // des milliers de fichiers MediaStore peuvent être signalés "modifiés".
+                } else {
+                    startupScanInProgress = true
+                    scanProgress = 0f
+                    val indexedAlbums = repository.quickRefreshAlbumsFromSdMusic { progress ->
+                        withContext(Dispatchers.Main) {
+                            scanProgress = progress.coerceIn(0f, 1f)
+                        }
                     }
+                    albums = indexedAlbums
+                    playlists = repository.listPlaylists()
+                    scanProgress = 1f
                 }
-                albums = indexedAlbums
-                scanProgress = 0.98f
-                playlists = repository.listPlaylists()
-                scanProgress = 1f
             } finally {
                 loading = false
-                refreshing = false
-                delay(250L)
+                if (startupScanInProgress) delay(250L)
                 startupScanInProgress = false
                 scanProgress = null
             }
@@ -521,7 +519,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.66")
+            PlayerHeader(version = "V0.67")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
