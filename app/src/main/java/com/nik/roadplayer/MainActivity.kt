@@ -385,12 +385,26 @@ private fun MerylCarPlayerApp() {
         }
     }
 
+    // Le scan de démarrage affiche sa progression, y compris lors du premier lancement.
     LaunchedEffect(permissionGranted) {
         if (permissionGranted) {
             loading = true
-            albums = repository.quickRefreshAlbumsFromSdMusic()
-            playlists = repository.listPlaylists()
-            loading = false
+            scanProgress = 0f
+            try {
+                val indexedAlbums = repository.quickRefreshAlbumsFromSdMusic { progress ->
+                    withContext(Dispatchers.Main) {
+                        scanProgress = progress.coerceIn(0f, 1f) * 0.95f
+                    }
+                }
+                albums = indexedAlbums
+                scanProgress = 0.98f
+                playlists = repository.listPlaylists()
+                scanProgress = 1f
+            } finally {
+                loading = false
+                delay(250L)
+                scanProgress = null
+            }
         }
     }
 
@@ -468,7 +482,7 @@ private fun MerylCarPlayerApp() {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.63")
+            PlayerHeader(version = "V0.64")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -502,7 +516,7 @@ private fun MerylCarPlayerApp() {
                 Box(modifier = Modifier.weight(1f)) {
                     when {
                         !permissionGranted -> CenterMessage("Autorise l’accès à la musique")
-                        loading && albums.isEmpty() -> StartupLoadingBar()
+                        loading && albums.isEmpty() -> StartupLoadingBar(progress = scanProgress)
                         albums.isEmpty() -> CenterMessage("Aucun MP3/FLAC trouvé dans la carte SD / Music")
                         displayedAlbums.isEmpty() -> CenterMessage("Aucun résultat")
                         else -> AlbumGrid(
@@ -515,6 +529,8 @@ private fun MerylCarPlayerApp() {
                             artworkRevision = coverRevision,
                             onAlbumLongPress = { album -> coverActionAlbum = album },
                             onAlbumClick = { album ->
+                                // Un clic simple lance la lecture et ouvre la liste des morceaux.
+                                selectedAlbum = album
                                 val activeController = controller ?: return@AlbumGrid
 
                                 val currentMetadata = activeController.currentMediaItem?.mediaMetadata
@@ -569,8 +585,8 @@ private fun MerylCarPlayerApp() {
                     RefreshLibraryButton(
                         enabled = !loading && !refreshing && permissionGranted,
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp),
+                            .align(Alignment.BottomStart)
+                            .padding(start = 16.dp, bottom = 16.dp),
                         onClick = {
                             coroutineScope.launch {
                                 refreshing = true
@@ -671,7 +687,7 @@ private fun MerylCarPlayerApp() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Scan de la bibliothèque",
+                        text = if (loading) "Chargement de la bibliothèque" else "Scan de la bibliothèque",
                         color = Color(0xFFEDEDED),
                         fontSize = 11.sp
                     )
@@ -1133,19 +1149,44 @@ private fun ColorProfileDialog(
 }
 
 @Composable
-private fun StartupLoadingBar() {
+private fun StartupLoadingBar(progress: Float?) {
     val profile = LocalUiColorProfile.current
+    val currentProgress = progress?.coerceIn(0f, 1f)
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        LinearProgressIndicator(
-            modifier = Modifier
-                .fillMaxWidth(0.62f)
-                .height(5.dp),
-            color = profile.primary,
-            trackColor = profile.secondary.copy(alpha = 0.18f)
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth(0.78f)
+        ) {
+            Text(
+                text = "Chargement de la bibliothèque",
+                color = Color.White,
+                fontSize = 14.sp
+            )
+            if (currentProgress != null) {
+                LinearProgressIndicator(
+                    progress = { currentProgress },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = profile.primary,
+                    trackColor = profile.secondary.copy(alpha = 0.18f)
+                )
+                Text(
+                    text = "${(currentProgress * 100f).toInt()} %",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            } else {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = profile.primary,
+                    trackColor = profile.secondary.copy(alpha = 0.18f)
+                )
+            }
+        }
     }
 }
 
@@ -2094,7 +2135,7 @@ private fun AlbumGrid(
                                         color = Color(0xFFFFDE59),
                                         shape = RoundedCornerShape(8.dp)
                                     )
-                                    .background(Color(0x221800AD), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFFFDE59), RoundedCornerShape(8.dp))
                                     .padding(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(spacing)
                             ) {
@@ -2175,8 +2216,8 @@ private fun AlbumGrid(
 
         Column(
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 8.dp, bottom = 10.dp),
+                .align(Alignment.BottomEnd)
+                .padding(end = 8.dp, bottom = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
