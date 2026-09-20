@@ -47,8 +47,12 @@ class MusicRepository(private val context: Context) {
     // tous les MP3/FLAC avec MediaMetadataRetriever ; seuls les nouveaux fichiers
     // ou ceux dont la taille/date ont changé sont réellement analysés.
     private val tagCacheFile = File(context.filesDir, "roadplayer_tag_cache_v1.json")
-    private val tagCache = ConcurrentHashMap<String, CachedTagEntry>().apply {
-        putAll(loadTagCache())
+    // Les tags détaillés ne sont nécessaires qu'au SCAN, pas pour afficher
+    // la bibliothèque déjà indexée. Ne les charger qu'à la première utilisation.
+    private val tagCache by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ConcurrentHashMap<String, CachedTagEntry>().apply {
+            putAll(loadTagCache())
+        }
     }
     // V0.23 : index persistant de toute la bibliothèque. Si MediaStore n'a pas
     // changé, RoadPlayer reconstruit les albums depuis cet index sans rescanner
