@@ -500,31 +500,60 @@ class MusicRepository(private val context: Context) {
                     processedItems++
                     val displayName = cursor.getString(nameCol)
                     if (displayName == null || !isSupported(displayName)) {
-                        onItemProgress((processedItems.toFloat() / totalItems).coerceIn(0f, 1f))
+                        if (processedItems % 25 == 0 || processedItems == totalItems) {
+                            onItemProgress((processedItems.toFloat() / totalItems).coerceIn(0f, 1f))
+                        }
                         continue
                     }
 
                     val id = cursor.getLong(idCol)
                     val cacheKey = "$volume:$id"
+                    val relativePath = cursor.getString(pathCol).orEmpty()
+                    val dateModified = cursor.getLong(modifiedCol)
+                    val fileSize = cursor.getLong(sizeCol)
+
+                    // Android peut signaler des milliers de morceaux "modifiés" après un
+                    // montage de SD sans modification réelle du contenu audio.
+                    // Ne jamais rouvrir le fichier si son empreinte et son chemin sont identiques.
+                    val cached = trackIndex[cacheKey]
+                    if (cached != null &&
+                        cached.dateModified == dateModified &&
+                        cached.fileSize == fileSize &&
+                        cached.displayName == displayName &&
+                        cached.track.relativePath == relativePath
+                    ) {
+                        if (processedItems % 25 == 0 || processedItems == totalItems) {
+                            onItemProgress((processedItems.toFloat() / totalItems).coerceIn(0f, 1f))
+                        }
+                        continue
+                    }
+
                     val albumId = cursor.getLong(albumIdCol)
                     val uri = ContentUris.withAppendedId(collection, id)
-                    val relativePath = cursor.getString(pathCol).orEmpty()
                     val mediaStoreAlbum = cleanTag(cursor.getString(albumCol))
                     val mediaStoreArtist = cleanTag(cursor.getString(artistCol))
                     val mediaStoreTitle = cleanTag(cursor.getString(titleCol))
                     val mediaStoreTrack = cursor.getInt(trackCol)
                     val mediaStoreDuration = cursor.getLong(durationCol).coerceAtLeast(0L)
-                    val dateModified = cursor.getLong(modifiedCol)
-                    val fileSize = cursor.getLong(sizeCol)
 
-                    // Un ID arrivé dans cette requête est nouveau ou modifié : on relit seulement lui.
-                    val tags = readTags(uri)
-                    tagCache[cacheKey] = CachedTagEntry(
-                        dateModified = dateModified,
-                        fileSize = fileSize,
-                        tags = tags
-                    )
-                    tagCacheChanged = true
+                    // Réutilise les tags déjà lus si la taille et la date n'ont pas changé.
+                    // Même en cas de déplacement/renommage, seules les infos de dossier sont recalculées.
+                    val previousTags = tagCache[cacheKey]
+                    val tags = if (previousTags != null &&
+                        previousTags.dateModified == dateModified &&
+                        previousTags.fileSize == fileSize
+                    ) previousTags.tags else readTags(uri)
+                    if (previousTags == null ||
+                        previousTags.dateModified != dateModified ||
+                        previousTags.fileSize != fileSize
+                    ) {
+                        tagCache[cacheKey] = CachedTagEntry(
+                            dateModified = dateModified,
+                            fileSize = fileSize,
+                            tags = tags
+                        )
+                        tagCacheChanged = true
+                    }
 
                     val rawAlbumTitle = tags.album
                         ?: mediaStoreAlbum
@@ -576,7 +605,9 @@ class MusicRepository(private val context: Context) {
                         groupIdentity = groupIdentity
                     )
                     indexChanged = true
-                    onItemProgress((processedItems.toFloat() / totalItems).coerceIn(0f, 1f))
+                    if (processedItems % 25 == 0 || processedItems == totalItems) {
+                        onItemProgress((processedItems.toFloat() / totalItems).coerceIn(0f, 1f))
+                    }
                 }
             }
         }
