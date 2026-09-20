@@ -147,8 +147,25 @@ private val UiColorProfiles = listOf(
 private val LocalUiColorProfile = staticCompositionLocalOf { UiColorProfiles.first() }
 
 class MainActivity : ComponentActivity() {
+    private val diagnosticFile by lazy {
+        java.io.File(filesDir, "merylcarplayer_test_crash.txt")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Conserver le vrai motif du crash pour pouvoir le lire sans PC au prochain lancement.
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                diagnosticFile.writeText(throwable.stackTraceToString())
+            }
+            previousHandler?.uncaughtException(thread, throwable)
+        }
         super.onCreate(savedInstanceState)
+
+        if (diagnosticFile.exists()) {
+            showCrashDiagnostic(diagnosticFile.readText())
+            return
+        }
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF202830)) {
@@ -156,6 +173,51 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun showCrashDiagnostic(report: String) {
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
+        }
+        val heading = android.widget.TextView(this).apply {
+            text = "MerylCarPlayer TEST V0.63 — Diagnostic du plantage"
+            textSize = 20f
+            setTextColor(android.graphics.Color.WHITE)
+        }
+        layout.addView(heading)
+        val details = android.widget.TextView(this).apply {
+            text = report
+            textSize = 13f
+            setTextColor(android.graphics.Color.WHITE)
+            setTextIsSelectable(true)
+        }
+        val scroll = android.widget.ScrollView(this).apply {
+            addView(details)
+        }
+        layout.addView(
+            scroll,
+            android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        )
+        layout.addView(android.widget.Button(this).apply {
+            text = "Copier le diagnostic"
+            setOnClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Erreur MerylCarPlayer TEST", report))
+                Toast.makeText(this@MainActivity, "Diagnostic copié", Toast.LENGTH_SHORT).show()
+            }
+        })
+        layout.addView(android.widget.Button(this).apply {
+            text = "Réessayer d'ouvrir"
+            setOnClickListener {
+                diagnosticFile.delete()
+                recreate()
+            }
+        })
+        setContentView(layout)
     }
 }
 
@@ -406,7 +468,7 @@ private fun MerylCarPlayerApp() {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.62")
+            PlayerHeader(version = "V0.63")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -968,14 +1030,14 @@ private fun PlayerHeader(version: String) {
             .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.merylcar_audio_banner),
-            contentDescription = "MerylCarPlayer",
-            modifier = Modifier
-                .weight(1f)
-                .height(54.dp)
-                .offset(y = 6.dp),
-            contentScale = ContentScale.Fit
+        // Affichage texte provisoire pour isoler un éventuel plantage du décodage d'image.
+        Text(
+            text = "MERYL CAR AUDIO",
+            modifier = Modifier.weight(1f),
+            color = Color(0xFFFFDE59),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
         )
 
         Text(
