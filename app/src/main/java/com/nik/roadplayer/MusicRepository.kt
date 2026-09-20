@@ -6,6 +6,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.AtomicFile
 import android.util.Base64
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
@@ -1894,9 +1895,12 @@ class MusicRepository(private val context: Context) {
     }
 
     private fun loadTrackIndex(): Map<String, CachedIndexedTrack> {
-        if (!trackIndexFile.isFile || trackIndexFile.length() <= 0L) return emptyMap()
         return runCatching {
-            val root = JSONObject(trackIndexFile.readText())
+            // AtomicFile restaure automatiquement l'ancien index si l'appli a été
+            // interrompue pendant une sauvegarde (évite un scan complet au réveil).
+            val root = JSONObject(
+                AtomicFile(trackIndexFile).openRead().bufferedReader().use { it.readText() }
+            )
             if (root.optInt("version", 1) < 2) return@runCatching emptyMap()
             val entries = root.optJSONObject("entries") ?: return@runCatching emptyMap()
             buildMap {
@@ -1977,12 +1981,14 @@ class MusicRepository(private val context: Context) {
                 put("version", 2)
                 put("entries", entries)
             }
-            val tmp = File(trackIndexFile.parentFile, trackIndexFile.name + ".tmp")
-            tmp.writeText(root.toString())
-            if (trackIndexFile.exists()) trackIndexFile.delete()
-            if (!tmp.renameTo(trackIndexFile)) {
-                trackIndexFile.writeText(root.toString())
-                tmp.delete()
+            val atomic = AtomicFile(trackIndexFile)
+            val stream = atomic.startWrite()
+            try {
+                stream.write(root.toString().toByteArray(Charsets.UTF_8))
+                atomic.finishWrite(stream)
+            } catch (error: Throwable) {
+                atomic.failWrite(stream)
+                throw error
             }
         }
     }
