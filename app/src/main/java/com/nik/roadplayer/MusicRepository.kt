@@ -113,12 +113,9 @@ class MusicRepository(private val context: Context) {
      */
     suspend fun cachedAlbumsFromSdMusic(): List<Album> = withContext(Dispatchers.IO) {
         if (trackIndex.isEmpty()) return@withContext emptyList()
-        val volumes = MediaStore.getExternalVolumeNames(context)
-            .filter { it != MediaStore.VOLUME_EXTERNAL_PRIMARY }
-        if (volumes.isEmpty()) return@withContext emptyList()
-        val prefixes = volumes.map { "$it:" }
+        // Un volume SD peut ne pas encore être déclaré par Android au lancement.
+        // L'index local reste disponible même pendant le montage de la carte.
         val tracks = trackIndex.entries.asSequence()
-            .filter { (key, _) -> prefixes.any { key.startsWith(it) } }
             .map { (_, cached) ->
                 TaggedTrack(
                     track = cached.track,
@@ -163,7 +160,12 @@ class MusicRepository(private val context: Context) {
                 trackIndex.keys.any { it.startsWith("$volume:") }
         }
         if (!indexUsable || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return@withContext loadAlbumsFromSdMusic(onProgress)
+            // Sur le premier lancement, ne pas extraire les tags un fichier à la fois.
+            // MediaStore donne immédiatement les informations essentielles.
+            return@withContext loadAlbumsFromSdMusic(
+                onProgress = onProgress,
+                fastMetadataOnly = !includePhysicalChanges && trackIndex.isEmpty()
+            )
         }
 
         var anyIndexChange = false
@@ -640,7 +642,8 @@ class MusicRepository(private val context: Context) {
     }
 
     suspend fun loadAlbumsFromSdMusic(
-        onProgress: suspend (Float) -> Unit = {}
+        onProgress: suspend (Float) -> Unit = {},
+        fastMetadataOnly: Boolean = false
     ): List<Album> = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val volumes = MediaStore.getExternalVolumeNames(context)
@@ -827,6 +830,10 @@ class MusicRepository(private val context: Context) {
                             cachedTags.fileSize == fileSize
                         ) {
                             cachedTags.tags
+                        } else if (fastMetadataOnly) {
+                            // Premier index rapide : pas de lecture MP3/FLAC individuelle.
+                            // Le scan manuel pourra enrichir les tags ultérieurement.
+                            AudioTags()
                         } else {
                             readTags(uri).also { fresh ->
                                 tagCache[cacheKey] = CachedTagEntry(
@@ -892,7 +899,8 @@ class MusicRepository(private val context: Context) {
                         )
 
                         trackIndex[cacheKey] = CachedIndexedTrack(
-                            dateModified = dateModified,
+                            // Marque un morceau non enrichi pour le prochain scan manuel.
+                            dateModified = if (fastMetadataOnly && cachedTags == null) Long.MIN_VALUE else dateModified,
                             fileSize = fileSize,
                             displayName = displayName,
                             track = track,
@@ -914,10 +922,12 @@ class MusicRepository(private val context: Context) {
             mediaStoreGeneration(volume)?.let { generationAfter ->
                 scanStatePrefs.edit()
                     .putLong(scanGenerationKey(volume), generationAfter)
-                    .putBoolean(scanReadyKey(volume), true)
+                    // L'index rapide est jouable, mais le scan manuel doit pouvoir
+                    // enrichir les tags même si MediaStore n'a pas changé.
+                    .putBoolean(scanReadyKey(volume), !fastMetadataOnly)
                     .apply()
             } ?: scanStatePrefs.edit()
-                .putBoolean(scanReadyKey(volume), true)
+                .putBoolean(scanReadyKey(volume), !fastMetadataOnly)
                 .apply()
             onProgress(volumeBase + volumeSpan)
         }
