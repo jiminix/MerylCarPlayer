@@ -112,6 +112,37 @@ class MusicRepository(private val context: Context) {
      * Le contrôle incrémental continue en arrière-plan après l'affichage.
      * Aucun état du disque ou de l'index n'est modifié ici.
      */
+    /**
+     * Startup: consult only MediaStore's per-volume generation counters.
+     * Do not traverse Music/, reopen MP3/FLAC files or rebuild the album list
+     * when the existing index is still current. The visible cached library can
+     * therefore render before any optional synchronization begins.
+     *
+     * The manual SCAN button remains responsible for detecting files copied
+     * to the SD card that Android has not yet added to MediaStore.
+     */
+    suspend fun needsStartupMediaStoreRefresh(): Boolean = withContext(Dispatchers.IO) {
+        if (trackIndex.isEmpty()) return@withContext true
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext false
+
+        val volumes = MediaStore.getExternalVolumeNames(context)
+            .filter { it != MediaStore.VOLUME_EXTERNAL_PRIMARY }
+
+        // The SD card may still be mounting; preserve the known offline library.
+        if (volumes.isEmpty()) return@withContext false
+
+        volumes.any { volume ->
+            val generation = mediaStoreGeneration(volume)
+            val recorded = scanStatePrefs.getLong(scanGenerationKey(volume), Long.MIN_VALUE)
+            val hasEntries = trackIndex.keys.any { it.startsWith("$volume:") }
+            generation != null && (
+                !hasEntries ||
+                    !scanStatePrefs.getBoolean(scanReadyKey(volume), false) ||
+                    recorded != generation
+                )
+        }
+    }
+
     suspend fun cachedAlbumsFromSdMusic(): List<Album> = withContext(Dispatchers.IO) {
         if (trackIndex.isEmpty()) return@withContext emptyList()
         // Un volume SD peut ne pas encore être déclaré par Android au lancement.
