@@ -242,7 +242,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.77")
+                PlayerHeader(version = "V0.78")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -554,7 +554,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.77")
+            PlayerHeader(version = "V0.78")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -2097,9 +2097,17 @@ private fun AlbumGrid(
     // V0.53 : la vue Artistes n'affiche qu'une seule pochette par artiste.
     // Un appui long ouvre les autres albums du même artiste à côté de la pochette.
     var expandedArtist by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedArtistPage by rememberSaveable { mutableStateOf(0) }
+    var azPickerOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(groupMode) {
         expandedArtist = null
+        expandedArtistPage = 0
+        azPickerOpen = false
+    }
+
+    LaunchedEffect(expandedArtist) {
+        expandedArtistPage = 0
     }
 
     val artistRepresentatives = remember(artistGroups) {
@@ -2167,8 +2175,8 @@ private fun AlbumGrid(
             state = gridState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = if (groupMode == "artist") 27.dp else 6.dp,
-                end = if (groupMode == "artist") 27.dp else 6.dp,
+                start = 6.dp,
+                end = 6.dp,
                 top = 34.dp,
                 bottom = 5.dp
             ),
@@ -2224,6 +2232,7 @@ private fun AlbumGrid(
                             val otherAlbums = artistAlbums.filterNot {
                                 it.key == representativeAlbum.key
                             }
+
                             BoxWithConstraints(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2235,11 +2244,28 @@ private fun AlbumGrid(
                                     .background(Color(0xFF151515), RoundedCornerShape(8.dp))
                                     .padding(4.dp)
                             ) {
-                                val mainSize = (
-                                    maxWidth - spacing * (columns - 1).coerceAtLeast(0)
-                                ) / columns.coerceAtLeast(1)
+                                val mainSize = if (columns == 1) {
+                                    maxWidth * 0.46f
+                                } else {
+                                    (
+                                        maxWidth - spacing * (columns - 1).coerceAtLeast(0)
+                                    ) / columns.coerceAtLeast(1)
+                                }
                                 val smallSize = mainSize / 2f
-                                val sideScroll = rememberScrollState()
+                                val visibleCount = when (columns) {
+                                    1 -> 2
+                                    2 -> 1
+                                    3 -> 3
+                                    else -> 5
+                                }.coerceAtLeast(1)
+                                val pageCount = (
+                                    (otherAlbums.size + visibleCount - 1) / visibleCount
+                                ).coerceAtLeast(1)
+                                val safePage = expandedArtistPage.coerceIn(0, pageCount - 1)
+                                val startIndex = safePage * visibleCount
+                                val pageAlbums = otherAlbums
+                                    .drop(startIndex)
+                                    .take(visibleCount)
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -2279,45 +2305,110 @@ private fun AlbumGrid(
                                             }
                                     )
 
-                                    Row(
+                                    Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .horizontalScroll(sideScroll),
-                                        horizontalArrangement = Arrangement.spacedBy(spacing),
-                                        verticalAlignment = Alignment.CenterVertically
+                                            .height(mainSize),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        otherAlbums.forEach { album ->
-                                            AlbumCover(
-                                                album = album,
-                                                repository = repository,
-                                                artworkRevision = artworkRevision,
-                                                compact = true,
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
                                                 modifier = Modifier
-                                                    .size(smallSize)
-                                                    .border(
-                                                        width = 1.5.dp,
-                                                        color = Color(0xFFFFDE59),
-                                                        shape = RoundedCornerShape(5.dp)
+                                                    .size(30.dp)
+                                                    .clip(RoundedCornerShape(15.dp))
+                                                    .background(
+                                                        if (safePage > 0) Color(0xDD252525)
+                                                        else Color(0x66252525)
                                                     )
-                                                    .padding(2.dp)
-                                                    .pointerInput(album.key) {
-                                                        detectTapGestures(
-                                                            onTap = {
-                                                                expandedArtist = null
-                                                                onAlbumClick(album)
-                                                            },
-                                                            onDoubleTap = {
-                                                                expandedArtist = null
-                                                                onAlbumLongPress(album)
+                                                    .clickable(enabled = safePage > 0) {
+                                                        expandedArtistPage = safePage - 1
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    "‹",
+                                                    color = if (safePage > 0) Color.White
+                                                    else Color(0xFF666666),
+                                                    fontSize = 22.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                horizontalArrangement = Arrangement.spacedBy(spacing),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                pageAlbums.forEach { album ->
+                                                    AlbumCover(
+                                                        album = album,
+                                                        repository = repository,
+                                                        artworkRevision = artworkRevision,
+                                                        compact = true,
+                                                        modifier = Modifier
+                                                            .size(smallSize)
+                                                            .border(
+                                                                width = 1.5.dp,
+                                                                color = Color(0xFFFFDE59),
+                                                                shape = RoundedCornerShape(5.dp)
+                                                            )
+                                                            .padding(2.dp)
+                                                            .pointerInput(album.key) {
+                                                                detectTapGestures(
+                                                                    onTap = {
+                                                                        expandedArtist = null
+                                                                        onAlbumClick(album)
+                                                                    },
+                                                                    onDoubleTap = {
+                                                                        expandedArtist = null
+                                                                        onAlbumLongPress(album)
+                                                                    }
+                                                                )
                                                             }
-                                                        )
-                                                    }
+                                                    )
+                                                }
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .clip(RoundedCornerShape(15.dp))
+                                                    .background(
+                                                        if (safePage < pageCount - 1) Color(0xDD252525)
+                                                        else Color(0x66252525)
+                                                    )
+                                                    .clickable(enabled = safePage < pageCount - 1) {
+                                                        expandedArtistPage = safePage + 1
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    "›",
+                                                    color = if (safePage < pageCount - 1) Color.White
+                                                    else Color(0xFF666666),
+                                                    fontSize = 22.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+
+                                        if (pageCount > 1) {
+                                            Text(
+                                                text = "${safePage + 1}/$pageCount",
+                                                color = Color(0xFF9A9A9A),
+                                                fontSize = 9.sp,
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .padding(bottom = 1.dp)
                                             )
                                         }
                                     }
                                 }
-                            }
-                        } else {
+                            }                        } else {
                             AlbumCover(
                                 album = representativeAlbum,
                                 repository = repository,
@@ -2424,39 +2515,98 @@ private fun AlbumGrid(
         }
 
         if (groupMode == "artist" && expandedArtist == null) {
-            Column(
+            Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .padding(top = 34.dp, bottom = 5.dp, end = 2.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(Color(0xCC101010))
-                    .padding(horizontal = 2.dp, vertical = 1.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(end = 5.dp)
+                    .size(width = 42.dp, height = 66.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(Color(0xE61A1A1A))
+                    .border(
+                        width = 1.dp,
+                        color = Color(0xFF565656),
+                        shape = RoundedCornerShape(13.dp)
+                    )
+                    .clickable { azPickerOpen = true },
+                contentAlignment = Alignment.Center
             ) {
-                ('A'..'Z').forEach { letter ->
-                    val target = letterIndexes[letter]
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(3.dp))
-                            .clickable(enabled = target != null) {
-                                scope.launch { gridState.scrollToItem(target ?: 0) }
-                            }
-                            .padding(horizontal = 2.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = letter.toString(),
-                            color = if (target != null) Color(0xFFE8E8E8) else Color(0xFF4B4B4B),
-                            fontSize = 8.sp,
-                            fontWeight = if (target != null) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1
+                Text(
+                    text = "A\nZ",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 17.sp
+                )
+            }
+        }
+
+        if (azPickerOpen) {
+            Dialog(onDismissRequest = { azPickerOpen = false }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF151A1F))
+                        .border(
+                            width = 2.dp,
+                            color = Color(0xFFFFDE59),
+                            shape = RoundedCornerShape(18.dp)
                         )
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "ALLER À",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    ('A'..'Z').toList().chunked(4).forEach { rowLetters ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowLetters.forEach { letter ->
+                                val target = letterIndexes[letter]
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(11.dp))
+                                        .background(
+                                            if (target != null) Color(0xFF2C353B)
+                                            else Color(0xFF1E2428)
+                                        )
+                                        .clickable(enabled = target != null) {
+                                            azPickerOpen = false
+                                            expandedArtist = null
+                                            scope.launch {
+                                                gridState.scrollToItem(target ?: 0)
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = letter.toString(),
+                                        color = if (target != null) Color.White
+                                        else Color(0xFF51585C),
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            repeat(4 - rowLetters.size) {
+                                Spacer(Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
-        }
+        }        }
     }
 }
 
