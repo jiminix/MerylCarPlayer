@@ -12,13 +12,16 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,9 +32,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,7 +64,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -109,7 +113,20 @@ fun StudioScreen(
     var playing by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var playbackDuration by remember { mutableStateOf(0L) }
+    var playbackStartOffset by remember { mutableStateOf(0L) }
+    var playbackStartedAt by remember { mutableStateOf(0L) }
+    var recordingStartedAt by remember { mutableStateOf(0L) }
+    var playheadMs by remember { mutableStateOf(0L) }
     var pendingRecord by remember { mutableStateOf<Int?>(null) }
+
+    val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
+    val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
+        (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
+    } else {
+        0L
+    }
+    val timelineDuration = max(1000L, max(storedTimelineDuration, liveRecordingDuration))
+    val timelineProgress = (playheadMs.toFloat() / timelineDuration.toFloat()).coerceIn(0f, 1f)
 
     fun settings(): StudioMixSettings = StudioMixSettings(
         volumes = volumes.toList(),
@@ -123,7 +140,7 @@ fun StudioScreen(
                 Triple(
                     engine.hasTrack(index),
                     engine.trackDurationMs(index),
-                    engine.trackPeaks(index, 64)
+                    if (index == 0) engine.trackPeaks(index, 96) else emptyList()
                 )
             }
             existing[index] = info.first
@@ -136,12 +153,28 @@ fun StudioScreen(
         if (recordingTrack != null) return
         playing = false
         engine.stopPlayback()
+        playheadMs = 0L
+        playbackStartOffset = 0L
+        recordingStartedAt = SystemClock.elapsedRealtime()
         val started = engine.startRecording(index, settings())
         if (!started) {
+            recordingStartedAt = 0L
             Toast.makeText(context, "Impossible de démarrer le micro", Toast.LENGTH_LONG).show()
             return
         }
         recordingTrack = index
+    }
+
+    fun requestRecord(index: Int) {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            beginRecording(index)
+        } else {
+            pendingRecord = index
+        }
     }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -156,17 +189,39 @@ fun StudioScreen(
         }
     }
 
+    LaunchedEffect(pendingRecord) {
+        if (pendingRecord != null &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     LaunchedEffect(Unit) {
         repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
     }
 
-    LaunchedEffect(playing, playbackDuration) {
-        if (playing && playbackDuration > 0L) {
-            delay(playbackDuration + 120L)
-            if (playing) {
+    LaunchedEffect(playing, playbackDuration, playbackStartOffset, playbackStartedAt) {
+        while (playing) {
+            val elapsed = (SystemClock.elapsedRealtime() - playbackStartedAt).coerceAtLeast(0L)
+            val current = playbackStartOffset + elapsed
+            val end = playbackStartOffset + playbackDuration
+            playheadMs = current.coerceAtMost(end)
+            if (elapsed >= playbackDuration) {
                 engine.stopPlayback()
+                playheadMs = end.coerceAtMost(timelineDuration)
                 playing = false
+                break
             }
+            delay(40L)
+        }
+    }
+
+    LaunchedEffect(recordingTrack, recordingStartedAt) {
+        while (recordingTrack != null && recordingStartedAt > 0L) {
+            playheadMs = (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
+            delay(40L)
         }
     }
 
@@ -176,17 +231,26 @@ fun StudioScreen(
         }
     }
 
+    val compactBorderColors = listOf(
+        Color(0xFFFF7A20),
+        Color(0xFF5E7CFF),
+        Color(0xFF00C96B),
+        Color(0xFFFF3434)
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF10171B))
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 7.dp, vertical = 6.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp)
-                .background(Color(0xFF202830))
-                .padding(horizontal = 8.dp),
+                .height(46.dp)
+                .background(Color(0xFF202830), RoundedCornerShape(12.dp))
+                .padding(horizontal = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             StudioSquareButton(
@@ -197,59 +261,93 @@ fun StudioScreen(
                     onBack()
                 }
             )
-            Spacer(Modifier.size(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "MERYL STUDIO",
-                    color = Color(0xFFFFDE59),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Text(
-                    text = "5 pistes · overdub",
-                    color = Color(0xFFAEB9C0),
-                    fontSize = 10.sp
-                )
-            }
-            if (recordingTrack != null) {
-                Text(
-                    text = "● REC " + (recordingTrack!! + 1),
-                    color = Color(0xFFFF6B6B),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = "MERYL MINI STUDIO",
+                color = Color(0xFFFFDE59),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (recordingTrack != null) "● REC \${recordingTrack!! + 1}" else "5 PISTES",
+                color = if (recordingTrack != null) Color(0xFFFF6666) else Color(0xFF9BAAB2),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.width(62.dp),
+                textAlign = TextAlign.End
+            )
         }
 
+        Spacer(Modifier.height(6.dp))
+
+        StudioPrimaryTrack(
+            hasAudio = existing[0],
+            durationMs = durations[0],
+            waveform = peaks[0],
+            volume = volumes[0],
+            muted = muted[0],
+            solo = solo[0],
+            recording = recordingTrack == 0,
+            controlsEnabled = recordingTrack == null && !exporting,
+            timelineProgress = timelineProgress,
+            timelineDurationMs = timelineDuration,
+            playheadMs = playheadMs,
+            onTimelineSeek = { fraction ->
+                if (!playing && recordingTrack == null) {
+                    playheadMs = (timelineDuration * fraction.coerceIn(0f, 1f)).toLong()
+                }
+            },
+            onVolume = { volumes[0] = it },
+            onMute = { muted[0] = !muted[0] },
+            onSolo = { solo[0] = !solo[0] },
+            onRecord = { requestRecord(0) },
+            onClear = {
+                engine.deleteTrack(0)
+                existing[0] = false
+                durations[0] = 0L
+                peaks[0] = emptyList()
+                playheadMs = 0L
+            }
+        )
+
+        Spacer(Modifier.height(7.dp))
+
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF151D22))
-                .padding(horizontal = 8.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             StudioTransportButton(
                 text = if (playing) "■" else "▶",
                 enabled = recordingTrack == null && existing.any { it } && !exporting,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.width(92.dp)
             ) {
                 if (playing) {
                     engine.stopPlayback()
                     playing = false
                 } else {
-                    val duration = engine.startPlayback(settings())
+                    val startAt = if (playheadMs >= storedTimelineDuration - 50L) 0L else playheadMs
+                    val duration = engine.startPlayback(
+                        settings = settings(),
+                        startOffsetMs = startAt
+                    )
                     if (duration > 0L) {
+                        playbackStartOffset = startAt
                         playbackDuration = duration
+                        playbackStartedAt = SystemClock.elapsedRealtime()
+                        playheadMs = startAt
                         playing = true
                     }
                 }
             }
 
+            Spacer(Modifier.width(8.dp))
+
             StudioTransportButton(
                 text = "■ STOP",
                 enabled = recordingTrack != null || playing,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.width(92.dp)
             ) {
                 if (recordingTrack != null) {
                     val stoppedTrack = recordingTrack
@@ -258,6 +356,7 @@ fun StudioScreen(
                             engine.stopRecordingBlocking()
                         }
                         recordingTrack = null
+                        recordingStartedAt = 0L
                         stoppedTrack?.let { refreshTrack(it) }
                     }
                 } else {
@@ -266,10 +365,12 @@ fun StudioScreen(
                 }
             }
 
+            Spacer(Modifier.width(8.dp))
+
             StudioTransportButton(
                 text = if (exporting) "MIX..." else "EXPORT",
                 enabled = recordingTrack == null && existing.any { it } && !exporting,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.width(92.dp)
             ) {
                 exporting = true
                 playing = false
@@ -288,64 +389,108 @@ fun StudioScreen(
             }
         }
 
-        Text(
-            text = "Pour un overdub propre, utilise de préférence des écouteurs : les pistes déjà enregistrées sont jouées pendant le nouvel enregistrement.",
-            color = Color(0xFF93A2AA),
-            fontSize = 10.sp,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-        )
+        Spacer(Modifier.height(9.dp))
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 7.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            items((0 until STUDIO_TRACK_COUNT).toList()) { index ->
-                val isRecording = recordingTrack == index
-                StudioTrackRow(
-                    index = index,
-                    hasAudio = existing[index],
-                    durationMs = durations[index],
-                    waveform = peaks[index],
-                    volume = volumes[index],
-                    muted = muted[index],
-                    solo = solo[index],
-                    recording = isRecording,
-                    controlsEnabled = recordingTrack == null && !exporting,
-                    onVolume = { volumes[index] = it },
-                    onMute = { muted[index] = !muted[index] },
-                    onSolo = { solo[index] = !solo[index] },
-                    onRecord = {
-                        if (ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                        ) {
-                            beginRecording(index)
-                        } else {
-                            pendingRecord = index
-                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    },
-                    onClear = {
-                        engine.deleteTrack(index)
-                        existing[index] = false
-                        durations[index] = 0L
-                        peaks[index] = emptyList()
-                    }
-                )
-            }
-            item {
-                Spacer(Modifier.height(10.dp))
-            }
+            CompactStudioTrack(
+                index = 1,
+                borderColor = compactBorderColors[0],
+                hasAudio = existing[1],
+                volume = volumes[1],
+                muted = muted[1],
+                solo = solo[1],
+                recording = recordingTrack == 1,
+                controlsEnabled = recordingTrack == null && !exporting,
+                modifier = Modifier.weight(1f),
+                onVolume = { volumes[1] = it },
+                onMute = { muted[1] = !muted[1] },
+                onSolo = { solo[1] = !solo[1] },
+                onRecord = { requestRecord(1) },
+                onClear = {
+                    engine.deleteTrack(1)
+                    existing[1] = false
+                    durations[1] = 0L
+                }
+            )
+            CompactStudioTrack(
+                index = 2,
+                borderColor = compactBorderColors[1],
+                hasAudio = existing[2],
+                volume = volumes[2],
+                muted = muted[2],
+                solo = solo[2],
+                recording = recordingTrack == 2,
+                controlsEnabled = recordingTrack == null && !exporting,
+                modifier = Modifier.weight(1f),
+                onVolume = { volumes[2] = it },
+                onMute = { muted[2] = !muted[2] },
+                onSolo = { solo[2] = !solo[2] },
+                onRecord = { requestRecord(2) },
+                onClear = {
+                    engine.deleteTrack(2)
+                    existing[2] = false
+                    durations[2] = 0L
+                }
+            )
         }
+
+        Spacer(Modifier.height(7.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            CompactStudioTrack(
+                index = 3,
+                borderColor = compactBorderColors[2],
+                hasAudio = existing[3],
+                volume = volumes[3],
+                muted = muted[3],
+                solo = solo[3],
+                recording = recordingTrack == 3,
+                controlsEnabled = recordingTrack == null && !exporting,
+                modifier = Modifier.weight(1f),
+                onVolume = { volumes[3] = it },
+                onMute = { muted[3] = !muted[3] },
+                onSolo = { solo[3] = !solo[3] },
+                onRecord = { requestRecord(3) },
+                onClear = {
+                    engine.deleteTrack(3)
+                    existing[3] = false
+                    durations[3] = 0L
+                }
+            )
+            CompactStudioTrack(
+                index = 4,
+                borderColor = compactBorderColors[3],
+                hasAudio = existing[4],
+                volume = volumes[4],
+                muted = muted[4],
+                solo = solo[4],
+                recording = recordingTrack == 4,
+                controlsEnabled = recordingTrack == null && !exporting,
+                modifier = Modifier.weight(1f),
+                onVolume = { volumes[4] = it },
+                onMute = { muted[4] = !muted[4] },
+                onSolo = { solo[4] = !solo[4] },
+                onRecord = { requestRecord(4) },
+                onClear = {
+                    engine.deleteTrack(4)
+                    existing[4] = false
+                    durations[4] = 0L
+                }
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
     }
 }
 
 @Composable
-private fun StudioTrackRow(
-    index: Int,
+private fun StudioPrimaryTrack(
     hasAudio: Boolean,
     durationMs: Long,
     waveform: List<Float>,
@@ -354,6 +499,10 @@ private fun StudioTrackRow(
     solo: Boolean,
     recording: Boolean,
     controlsEnabled: Boolean,
+    timelineProgress: Float,
+    timelineDurationMs: Long,
+    playheadMs: Long,
+    onTimelineSeek: (Float) -> Unit,
     onVolume: (Float) -> Unit,
     onMute: () -> Unit,
     onSolo: () -> Unit,
@@ -363,28 +512,25 @@ private fun StudioTrackRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF1A2329), RoundedCornerShape(12.dp))
-            .padding(horizontal = 8.dp, vertical = 7.dp)
+            .border(2.dp, Color(0xFFFFDE59), RoundedCornerShape(16.dp))
+            .background(Color(0xFF1A2329), RoundedCornerShape(16.dp))
+            .padding(horizontal = 10.dp, vertical = 9.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "PISTE " + (index + 1),
-                color = if (recording) Color(0xFFFF6B6B) else Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
+                text = "PISTE 1",
+                color = if (recording) Color(0xFFFF6464) else Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f)
             )
-            if (hasAudio) {
-                Text(
-                    text = formatStudioDuration(durationMs),
-                    color = Color(0xFF9BAAB2),
-                    fontSize = 10.sp,
-                    modifier = Modifier.padding(end = 6.dp)
-                )
-            }
-
+            Text(
+                text = formatStudioDuration(if (recording) playheadMs else durationMs),
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(end = 8.dp)
+            )
             StudioMiniButton(
                 text = if (recording) "●" else "REC",
                 active = recording,
@@ -392,7 +538,7 @@ private fun StudioTrackRow(
                 activeColor = Color(0xFFB82020),
                 onClick = onRecord
             )
-            Spacer(Modifier.size(4.dp))
+            Spacer(Modifier.width(5.dp))
             StudioMiniButton(
                 text = "M",
                 active = muted,
@@ -400,7 +546,7 @@ private fun StudioTrackRow(
                 activeColor = Color(0xFFD38A19),
                 onClick = onMute
             )
-            Spacer(Modifier.size(4.dp))
+            Spacer(Modifier.width(5.dp))
             StudioMiniButton(
                 text = "S",
                 active = solo,
@@ -408,7 +554,138 @@ private fun StudioTrackRow(
                 activeColor = Color(0xFF2E7D5A),
                 onClick = onSolo
             )
-            Spacer(Modifier.size(4.dp))
+            Spacer(Modifier.width(5.dp))
+            StudioMiniButton(
+                text = "×",
+                active = false,
+                enabled = controlsEnabled && hasAudio,
+                activeColor = Color(0xFF303A40),
+                onClick = onClear
+            )
+        }
+
+        Spacer(Modifier.height(7.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .background(Color(0xFF0D1418), RoundedCornerShape(9.dp))
+                .pointerInput(timelineDurationMs, controlsEnabled) {
+                    detectTapGestures { offset ->
+                        if (controlsEnabled && size.width > 0) {
+                            onTimelineSeek(offset.x / size.width.toFloat())
+                        }
+                    }
+                }
+                .padding(horizontal = 5.dp)
+        ) {
+            StudioTimelineWaveform(
+                peaks = waveform,
+                active = hasAudio,
+                recording = recording,
+                playheadProgress = timelineProgress,
+                modifier = Modifier.fillMaxSize()
+            )
+            if (!hasAudio && !recording) {
+                Text(
+                    text = "Timeline commune",
+                    color = Color(0xFF5F6C72),
+                    fontSize = 10.sp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "VOL",
+                color = Color(0xFF8D9AA0),
+                fontSize = 10.sp,
+                modifier = Modifier.width(32.dp)
+            )
+            Slider(
+                value = volume,
+                onValueChange = onVolume,
+                enabled = controlsEnabled && hasAudio,
+                valueRange = 0f..1f,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = (volume * 100f).roundToInt().toString(),
+                color = Color.White,
+                fontSize = 10.sp,
+                textAlign = TextAlign.End,
+                modifier = Modifier.width(30.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactStudioTrack(
+    index: Int,
+    borderColor: Color,
+    hasAudio: Boolean,
+    volume: Float,
+    muted: Boolean,
+    solo: Boolean,
+    recording: Boolean,
+    controlsEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    onVolume: (Float) -> Unit,
+    onMute: () -> Unit,
+    onSolo: () -> Unit,
+    onRecord: () -> Unit,
+    onClear: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .border(2.dp, borderColor, RoundedCornerShape(16.dp))
+            .background(Color(0xFF1A2329), RoundedCornerShape(16.dp))
+            .padding(horizontal = 7.dp, vertical = 7.dp)
+    ) {
+        Text(
+            text = "PISTE \${index + 1}",
+            color = if (recording) Color(0xFFFF6464) else Color.White,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.ExtraBold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(5.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            StudioMiniButton(
+                text = if (recording) "●" else "REC",
+                active = recording,
+                enabled = controlsEnabled || recording,
+                activeColor = Color(0xFFB82020),
+                onClick = onRecord
+            )
+            StudioMiniButton(
+                text = "M",
+                active = muted,
+                enabled = controlsEnabled,
+                activeColor = Color(0xFFD38A19),
+                onClick = onMute
+            )
+            StudioMiniButton(
+                text = "S",
+                active = solo,
+                enabled = controlsEnabled,
+                activeColor = Color(0xFF2E7D5A),
+                onClick = onSolo
+            )
             StudioMiniButton(
                 text = "×",
                 active = false,
@@ -420,40 +697,17 @@ private fun StudioTrackRow(
 
         Spacer(Modifier.height(5.dp))
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(34.dp)
-                .background(Color(0xFF0D1418), RoundedCornerShape(7.dp))
-                .padding(horizontal = 4.dp)
-        ) {
-            StudioWaveform(
-                peaks = waveform,
-                active = hasAudio,
-                recording = recording,
-                modifier = Modifier.fillMaxSize()
-            )
-            if (!hasAudio && !recording) {
-                Text(
-                    text = "Vide — appuie sur REC",
-                    color = Color(0xFF5F6C72),
-                    fontSize = 10.sp,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
-        }
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(30.dp),
+                .height(26.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "VOL",
                 color = Color(0xFF8D9AA0),
-                fontSize = 9.sp,
-                modifier = Modifier.size(width = 28.dp, height = 18.dp)
+                fontSize = 8.sp,
+                modifier = Modifier.width(23.dp)
             )
             Slider(
                 value = volume,
@@ -464,43 +718,54 @@ private fun StudioTrackRow(
             )
             Text(
                 text = (volume * 100f).roundToInt().toString(),
-                color = Color(0xFFC4CDD1),
-                fontSize = 9.sp,
+                color = Color.White,
+                fontSize = 8.sp,
                 textAlign = TextAlign.End,
-                modifier = Modifier.size(width = 28.dp, height = 18.dp)
+                modifier = Modifier.width(24.dp)
             )
         }
     }
 }
 
 @Composable
-private fun StudioWaveform(
+private fun StudioTimelineWaveform(
     peaks: List<Float>,
     active: Boolean,
     recording: Boolean,
+    playheadProgress: Float,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
-        if (peaks.isEmpty()) return@Canvas
         val center = size.height / 2f
-        val step = size.width / peaks.size.coerceAtLeast(1)
-        val maxHalf = size.height * 0.43f
-        val waveColor = when {
-            recording -> Color(0xFFFF5E5E)
-            active -> Color(0xFFFFDE59)
-            else -> Color(0xFF49555B)
+        if (peaks.isNotEmpty()) {
+            val step = size.width / peaks.size.coerceAtLeast(1)
+            val maxHalf = size.height * 0.38f
+            val waveColor = when {
+                recording -> Color(0xFFFF6666)
+                active -> Color(0xFFFFDE59)
+                else -> Color(0xFF49555B)
+            }
+            peaks.forEachIndexed { i, value ->
+                val half = max(1f, value.coerceIn(0f, 1f) * maxHalf)
+                val x = step * i + step / 2f
+                drawLine(
+                    color = waveColor,
+                    start = Offset(x, center - half),
+                    end = Offset(x, center + half),
+                    strokeWidth = max(1f, step * 0.4f),
+                    cap = StrokeCap.Round
+                )
+            }
         }
-        peaks.forEachIndexed { i, value ->
-            val half = max(1f, value.coerceIn(0f, 1f) * maxHalf)
-            val x = step * i + step / 2f
-            drawLine(
-                color = waveColor,
-                start = Offset(x, center - half),
-                end = Offset(x, center + half),
-                strokeWidth = max(1f, step * 0.42f),
-                cap = StrokeCap.Round
-            )
-        }
+
+        val headX = size.width * playheadProgress.coerceIn(0f, 1f)
+        drawLine(
+            color = Color.White,
+            start = Offset(headX, 0f),
+            end = Offset(headX, size.height),
+            strokeWidth = 2.5f,
+            cap = StrokeCap.Round
+        )
     }
 }
 
@@ -512,10 +777,10 @@ private fun StudioSquareButton(
 ) {
     Box(
         modifier = Modifier
-            .size(38.dp)
+            .size(34.dp)
             .background(
                 if (enabled) Color(0xFF303A40) else Color(0xFF1B2226),
-                RoundedCornerShape(10.dp)
+                RoundedCornerShape(9.dp)
             )
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -523,7 +788,7 @@ private fun StudioSquareButton(
         Text(
             text = text,
             color = if (enabled) Color.White else Color(0xFF5C666B),
-            fontSize = 22.sp,
+            fontSize = 20.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -735,25 +1000,31 @@ private class MerylStudioEngine(private val context: Context) {
 
     fun startPlayback(
         settings: StudioMixSettings,
-        excludeTrack: Int = -1
+        excludeTrack: Int = -1,
+        startOffsetMs: Long = 0L
     ): Long {
         stopPlayback()
         val selected = selectedTrackIndexes(settings, excludeTrack)
         if (selected.isEmpty()) return 0L
+
+        val maxDuration = selected.maxOfOrNull { trackDurationMs(it) } ?: 0L
+        val offset = startOffsetMs.coerceIn(0L, maxDuration)
+        if (offset >= maxDuration) return 0L
+
         playbackStop.set(false)
 
         selected.forEach { index ->
             val file = trackFile(index)
             val volume = settings.volumes.getOrElse(index) { 1f }.coerceIn(0f, 1f)
             val thread = Thread {
-                streamWavFile(file, volume)
+                streamWavFile(file, volume, offset)
             }
             thread.name = "MerylStudioPlay-" + (index + 1)
             playbackThreads.add(thread)
             thread.start()
         }
 
-        return selected.maxOfOrNull { trackDurationMs(it) } ?: 0L
+        return (maxDuration - offset).coerceAtLeast(0L)
     }
 
     fun stopPlayback() {
@@ -892,7 +1163,7 @@ private class MerylStudioEngine(private val context: Context) {
         }
     }
 
-    private fun streamWavFile(file: File, volume: Float) {
+    private fun streamWavFile(file: File, volume: Float, startOffsetMs: Long) {
         if (!file.isFile || file.length() <= WAV_HEADER_SIZE) return
         val minBuffer = AudioTrack.getMinBufferSize(
             STUDIO_SAMPLE_RATE,
@@ -926,7 +1197,11 @@ private class MerylStudioEngine(private val context: Context) {
             player.setVolume(volume)
             player.play()
             BufferedInputStream(FileInputStream(file)).use { input ->
-                skipFully(input, WAV_HEADER_SIZE.toLong())
+                val dataBytes = (file.length() - WAV_HEADER_SIZE).coerceAtLeast(0L)
+                val requestedOffsetBytes =
+                    (startOffsetMs.coerceAtLeast(0L) * STUDIO_SAMPLE_RATE.toLong() / 1000L) * 2L
+                val offsetBytes = requestedOffsetBytes.coerceAtMost(dataBytes)
+                skipFully(input, WAV_HEADER_SIZE.toLong() + offsetBytes)
                 val buffer = ByteArray(minBuffer)
                 while (!playbackStop.get() && !Thread.currentThread().isInterrupted) {
                     val read = input.read(buffer)
