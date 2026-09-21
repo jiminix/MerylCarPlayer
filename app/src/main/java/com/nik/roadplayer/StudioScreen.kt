@@ -253,7 +253,7 @@ fun StudioScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
+                .height(60.dp)
                 .background(Color(0xFF202830), RoundedCornerShape(12.dp))
                 .padding(horizontal = 7.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -266,13 +266,12 @@ fun StudioScreen(
                     onBack()
                 }
             )
-            Text(
-                text = "MERYL MINI STUDIO",
-                color = Color(0xFFFFDE59),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f)
+            MerylBanner(
+                kind = MerylBannerKind.MINI_STUDIO,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(54.dp)
+                    .padding(horizontal = 4.dp)
             )
             Box(
                 modifier = Modifier
