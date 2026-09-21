@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V0.73 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V0.74 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.73")
+                PlayerHeader(version = "V0.74")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -545,7 +545,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.73")
+            PlayerHeader(version = "V0.74")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -1100,8 +1100,6 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
 
 @Composable
 private fun PlayerHeader(version: String) {
-    val context = LocalContext.current
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1119,35 +1117,6 @@ private fun PlayerHeader(version: String) {
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1
         )
-
-        Box(
-            modifier = Modifier
-                .height(34.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(Color(0xFFE62117))
-                .clickable {
-                    val playlistsUri = Uri.parse("https://www.youtube.com/feed/playlists")
-                    val youtubeIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
-                        setPackage("com.google.android.youtube")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    val fallbackIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    runCatching { context.startActivity(youtubeIntent) }
-                        .onFailure { runCatching { context.startActivity(fallbackIntent) } }
-                }
-                .padding(horizontal = 11.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "YouTube",
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
-            )
-        }
 
         Text(
             text = version,
@@ -1795,6 +1764,7 @@ private fun LibrarySortSelector(
     modifier: Modifier = Modifier
 ) {
     val profile = LocalUiColorProfile.current
+    val context = LocalContext.current
     val homeSelected = mode == "artist"
     val genreSelected = mode == "genre"
 
@@ -1831,10 +1801,47 @@ private fun LibrarySortSelector(
             )
         }
 
+        // YouTube juste à côté d'Accueil : icône seule.
         Box(
             modifier = Modifier
-                .height(38.dp)
-                .weight(1f)
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(if (enabled) Color(0xFFE62117) else Color(0xFF4B1A18))
+                .clickable(enabled = enabled) {
+                    val playlistsUri = Uri.parse("https://www.youtube.com/feed/playlists")
+                    val youtubeIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
+                        setPackage("com.google.android.youtube")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    runCatching { context.startActivity(youtubeIntent) }
+                        .onFailure { runCatching { context.startActivity(fallbackIntent) } }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 23.dp, height = 16.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "▶",
+                    color = Color(0xFFE62117),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+        }
+
+        // Genre : icône seule, plus aucun libellé.
+        Box(
+            modifier = Modifier
+                .size(38.dp)
                 .clip(RoundedCornerShape(11.dp))
                 .background(
                     when {
@@ -1847,8 +1854,8 @@ private fun LibrarySortSelector(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "GENRES",
-                fontSize = 11.sp,
+                text = "♫",
+                fontSize = 21.sp,
                 fontWeight = FontWeight.Bold,
                 color = when {
                     !enabled -> Color(0xFF555555)
@@ -1856,8 +1863,7 @@ private fun LibrarySortSelector(
                     else -> Color(0xFFD0D0D0)
                 },
                 maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+                textAlign = TextAlign.Center
             )
         }
     }
