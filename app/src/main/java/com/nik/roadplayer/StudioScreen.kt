@@ -1184,7 +1184,16 @@ private class MerylStudioEngine(private val context: Context) {
         runCatching { rawTempFile(index).delete() }
     }
 
-    fun exportMix(settings: StudioMixSettings): Uri? {
+    fun deleteAllTracks() {
+        if (recording.get()) return
+        stopPlayback()
+        repeat(STUDIO_TRACK_COUNT) { index ->
+            runCatching { trackFile(index).delete() }
+            runCatching { rawTempFile(index).delete() }
+        }
+    }
+
+    fun exportMix(settings: StudioMixSettings, requestedName: String): Uri? {
         val selected = selectedTrackIndexes(settings, excludeTrack = -1)
         if (selected.isEmpty()) return null
 
@@ -1238,9 +1247,24 @@ private class MerylStudioEngine(private val context: Context) {
             sources.forEach { runCatching { it.input.close() } }
         }
 
-        val name = "MerylStudio_" +
-            SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date()) +
-            ".wav"
+        val cleanedBase = requestedName
+            .trim()
+            .removeSuffix(".wav")
+            .removeSuffix(".WAV")
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace(":", "_")
+            .replace("*", "_")
+            .replace("?", "_")
+            .replace(""", "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+            .ifBlank {
+                "MerylStudio_" +
+                    SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
+            }
+        val name = cleanedBase + ".wav"
         val values = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, name)
             put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
