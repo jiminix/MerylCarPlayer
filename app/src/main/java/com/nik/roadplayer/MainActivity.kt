@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V0.70 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V0.71 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.70")
+                PlayerHeader(version = "V0.71")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -410,25 +410,25 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
         }
     }
 
-    // Un index existant permet l'affichage immédiat sans aucun scan au démarrage.
-    // Pour découvrir de nouveaux morceaux ou une carte SD modifiée, utiliser SCAN.
-    // Le premier lancement sans index conserve le scan complet et sa barre de progression.
+    // Show the persistent library first. Checking the SD card must never delay
+    // the first usable album grid. A full scan is reserved for a new installation
+    // without an index, or for the explicit SCAN action.
     var startupScanInProgress by remember { mutableStateOf(false) }
     LaunchedEffect(permissionGranted) {
         if (permissionGranted) {
             loading = true
+            var restoredFromCache = false
             try {
                 val cachedAlbums = repository.cachedAlbumsFromSdMusic()
                 if (cachedAlbums.isNotEmpty()) {
                     albums = cachedAlbums
                     playlists = repository.listPlaylists()
-                    // Ne pas relancer quickRefreshAlbumsFromSdMusic à chaque ouverture :
-                    // des milliers de fichiers MediaStore peuvent être signalés "modifiés".
+                    restoredFromCache = true
                 } else {
                     startupScanInProgress = true
                     scanProgress = 0f
-                    // Premier lancement : un seul passage MediaStore.
-                    // Pas de relecture MP3/FLAC et pas de requêtes par paquets d'IDs.
+                    // First run in this Android app's private storage: create its
+                    // index with one MediaStore query, without opening each audio file.
                     val indexedAlbums = repository.fastBootstrapAlbumsFromMediaStore { progress ->
                         withContext(Dispatchers.Main) {
                             scanProgress = progress.coerceIn(0f, 1f)
@@ -443,6 +443,30 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 if (startupScanInProgress) delay(250L)
                 startupScanInProgress = false
                 scanProgress = null
+            }
+
+            if (restoredFromCache) {
+                // Let the first frame render, then read only the SD volume's
+                // generation counter. Do not scan every file at every opening.
+                delay(150L)
+                try {
+                    if (!refreshing && repository.needsStartupMediaStoreRefresh()) {
+                        // A genuine MediaStore change: update only the changed
+                        // tracks in the background, without hiding the album grid.
+                        val updatedAlbums = repository.quickRefreshAlbumsFromSdMusic(
+                            includePhysicalChanges = false
+                        )
+                        if (!refreshing && updatedAlbums.isNotEmpty()) {
+                            albums = updatedAlbums
+                            playlists = repository.listPlaylists()
+                        }
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep the usable cached library on transient SD/MediaStore errors.
+                    // The user can retry explicitly with SCAN.
+                }
             }
         }
     }
@@ -521,7 +545,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.70")
+            PlayerHeader(version = "V0.71")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
