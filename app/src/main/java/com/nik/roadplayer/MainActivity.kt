@@ -245,7 +245,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.85")
+                PlayerHeader(version = "V0.86")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -557,7 +557,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.85")
+            PlayerHeader(version = "V0.86")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -2761,20 +2761,31 @@ private fun PlaylistScreen(
                     contentDescription = null,
                     modifier = Modifier
                         .matchParentSize()
+                        // ContentScale.Crop remplit déjà la largeur (zoom naturel de la
+                        // pochette carrée vers le bandeau large); préserver ses couleurs.
                         .graphicsLayer(
-                            scaleX = 2.8f,
-                            scaleY = 2.8f,
-                            alpha = 0.52f
+                            scaleX = 1.18f,
+                            scaleY = 1.18f,
+                            alpha = 0.88f
                         )
-                        .blur(14.dp),
+                        .blur(3.dp),
                     contentScale = ContentScale.Crop
                 )
             }
-            // Transparence + masque sombre: image d'ambiance, pas une deuxième pochette.
+            // Fond visible sur toute la largeur, mais voile plus soutenu derrière
+            // le texte à droite pour que titre, artiste et durée restent lisibles.
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .background(Color(0x9E111A21))
+                    .background(
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0x25111A21),
+                                Color(0x48111A21),
+                                Color(0xB9111A21)
+                            )
+                        )
+                    )
             )
             Row(
                 modifier = Modifier
