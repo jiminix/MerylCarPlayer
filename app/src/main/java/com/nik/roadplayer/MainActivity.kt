@@ -77,9 +77,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -242,7 +245,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.83")
+                PlayerHeader(version = "V0.84")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -554,7 +557,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.83")
+            PlayerHeader(version = "V0.84")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -1121,7 +1124,7 @@ private fun PlayerHeader(version: String) {
             .fillMaxWidth()
             .height(68.dp)
             .zIndex(1f)
-            .background(Color(0xFF202830))
+            .background(Color(0xCC202830))
             .padding(start = 5.dp, end = 7.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -3617,89 +3620,118 @@ private fun PlayerBar(controller: MediaController) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF0B1013))
+            .background(Color(0xB80B1013))
             .navigationBarsPadding()
     ) {
-        Row(
+        // Artwork d'ambiance: la pochette est volontairement fortement zoomée,
+        // floutée et atténuée; le texte et la vraie petite pochette restent nets.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(58.dp)
-                .background(profile.primary.copy(alpha = 0.24f))
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .clipToBounds()
+                .background(Color(0x8A202830))
         ) {
+            if (artworkBitmap != null) {
+                Image(
+                    bitmap = artworkBitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = 2.8f,
+                            scaleY = 2.8f,
+                            alpha = 0.34f
+                        )
+                        .blur(13.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(Color(0xFF11181C)),
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .background(Color(0xB00B1013))
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(profile.primary.copy(alpha = 0.07f))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (artworkBitmap != null) {
-                    Image(
-                        bitmap = artworkBitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
-                    Text("♪", color = Color(0xFF707070), fontSize = 18.sp)
-                }
-            }
-
-            Spacer(Modifier.size(9.dp))
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center
-            ) {
-                val titleText = currentTitle.ifBlank { "Aucune lecture" }
-                Text(
-                    text = titleText,
-                    color = if (currentTitle.isBlank()) Color(0xFF8A8A8A) else Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = if (currentTitle.isBlank()) FontWeight.Normal else FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (currentTitle.isNotBlank()) Modifier.basicMarquee(iterations = Int.MAX_VALUE)
-                            else Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(Color(0xFF11181C)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (artworkBitmap != null) {
+                        Image(
+                            bitmap = artworkBitmap.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
                         )
-                )
-
-                if (currentTitle.isNotBlank()) {
-                    val subtitle = listOf(currentArtist, currentAlbum)
-                        .filter { it.isNotBlank() }
-                        .joinToString("  •  ")
-                    if (subtitle.isNotBlank()) {
-                        Text(
-                            text = subtitle,
-                            color = Color(0xFFCCD4D8),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Clip,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .basicMarquee(iterations = Int.MAX_VALUE)
-                        )
+                    } else {
+                        Text("♪", color = Color(0xFF707070), fontSize = 18.sp)
                     }
                 }
-            }
 
-            if (currentTitle.isNotBlank()) {
-                Spacer(Modifier.size(10.dp))
-                Text(
-                    text = "-${formatDuration(remainingMs)}",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
+                Spacer(Modifier.size(9.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    val titleText = currentTitle.ifBlank { "Aucune lecture" }
+                    Text(
+                        text = titleText,
+                        color = if (currentTitle.isBlank()) Color(0xFF8A8A8A) else Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = if (currentTitle.isBlank()) FontWeight.Normal else FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (currentTitle.isNotBlank()) Modifier.basicMarquee(iterations = Int.MAX_VALUE)
+                                else Modifier
+                            )
+                    )
+
+                    if (currentTitle.isNotBlank()) {
+                        val subtitle = listOf(currentArtist, currentAlbum)
+                            .filter { it.isNotBlank() }
+                            .joinToString("  •  ")
+                        if (subtitle.isNotBlank()) {
+                            Text(
+                                text = subtitle,
+                                color = Color(0xFFCCD4D8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .basicMarquee(iterations = Int.MAX_VALUE)
+                            )
+                        }
+                    }
+                }
+
+                if (currentTitle.isNotBlank()) {
+                    Spacer(Modifier.size(10.dp))
+                    Text(
+                        text = "-${formatDuration(remainingMs)}",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
             }
         }
 
