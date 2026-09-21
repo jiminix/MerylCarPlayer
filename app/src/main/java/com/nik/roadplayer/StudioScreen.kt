@@ -415,7 +415,7 @@ fun StudioScreen(
                 exportFileName = "MerylStudio_" +
                     SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
                 exportNameDialogOpen = true
-            }            }
+            }
         }
 
         Spacer(Modifier.height(9.dp))
@@ -1256,7 +1256,7 @@ private class MerylStudioEngine(private val context: Context) {
             .replace(":", "_")
             .replace("*", "_")
             .replace("?", "_")
-            .replace(""", "_")
+            .replace('"', '_')
             .replace("<", "_")
             .replace(">", "_")
             .replace("|", "_")
