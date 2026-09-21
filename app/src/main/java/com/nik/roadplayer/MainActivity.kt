@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -241,7 +242,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.76")
+                PlayerHeader(version = "V0.77")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -553,7 +554,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.76")
+            PlayerHeader(version = "V0.77")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -2426,27 +2427,33 @@ private fun AlbumGrid(
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 2.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .fillMaxHeight()
+                    .padding(top = 34.dp, bottom = 5.dp, end = 2.dp)
+                    .clip(RoundedCornerShape(9.dp))
                     .background(Color(0xCC101010))
-                    .padding(horizontal = 3.dp, vertical = 2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .padding(horizontal = 2.dp, vertical = 1.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 ('A'..'Z').forEach { letter ->
                     val target = letterIndexes[letter]
-                    Text(
-                        text = letter.toString(),
-                        color = if (target != null) Color(0xFFE8E8E8) else Color(0xFF4B4B4B),
-                        fontSize = 9.sp,
-                        fontWeight = if (target != null) FontWeight.Bold else FontWeight.Normal,
+                    Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .weight(1f)
+                            .clip(RoundedCornerShape(3.dp))
                             .clickable(enabled = target != null) {
                                 scope.launch { gridState.scrollToItem(target ?: 0) }
                             }
-                            .padding(horizontal = 3.dp, vertical = 0.dp)
-                    )
+                            .padding(horizontal = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = letter.toString(),
+                            color = if (target != null) Color(0xFFE8E8E8) else Color(0xFF4B4B4B),
+                            fontSize = 8.sp,
+                            fontWeight = if (target != null) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }
@@ -3593,7 +3600,7 @@ private fun PlayerBar(controller: MediaController) {
                 Spacer(Modifier.size(10.dp))
                 Text(
                     text = "-${formatDuration(remainingMs)}",
-                    color = profile.secondary,
+                    color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1
@@ -3604,8 +3611,8 @@ private fun PlayerBar(controller: MediaController) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp)
-                .padding(horizontal = 12.dp),
+                .height(44.dp)
+                .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
@@ -3623,8 +3630,8 @@ private fun BigControl(symbol: String, enabled: Boolean, onClick: () -> Unit) {
     val profile = LocalUiColorProfile.current
     Box(
         modifier = Modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(13.dp))
+            .size(38.dp)
+            .clip(RoundedCornerShape(11.dp))
             .background(if (enabled) profile.primary else Color(0xFF101010))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
