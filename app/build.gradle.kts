@@ -16,6 +16,21 @@ android {
         versionName = "0.72"
     }
 
+    signingConfigs {
+        create("merylDebug") {
+            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("merylDebug")
+        }
+    }
+
     buildFeatures {
         compose = true
     }
