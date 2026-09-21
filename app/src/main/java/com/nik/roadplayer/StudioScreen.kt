@@ -410,21 +410,12 @@ fun StudioScreen(
                 enabled = recordingTrack == null && existing.any { it } && !exporting,
                 modifier = Modifier.width(92.dp)
             ) {
-                exporting = true
                 playing = false
                 engine.stopPlayback()
-                scope.launch {
-                    val uri = withContext(Dispatchers.IO) {
-                        engine.exportMix(settings())
-                    }
-                    exporting = false
-                    Toast.makeText(
-                        context,
-                        if (uri != null) "Mix enregistré dans Music/MerylStudio" else "Export impossible",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
+                exportFileName = "MerylStudio_" +
+                    SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
+                exportNameDialogOpen = true
+            }            }
         }
 
         Spacer(Modifier.height(9.dp))
@@ -437,6 +428,8 @@ fun StudioScreen(
                 index = 1,
                 borderColor = compactBorderColors[0],
                 hasAudio = existing[1],
+                durationMs = durations[1],
+                timelineDurationMs = timelineDuration,
                 volume = volumes[1],
                 muted = muted[1],
                 solo = solo[1],
@@ -457,6 +450,8 @@ fun StudioScreen(
                 index = 2,
                 borderColor = compactBorderColors[1],
                 hasAudio = existing[2],
+                durationMs = durations[2],
+                timelineDurationMs = timelineDuration,
                 volume = volumes[2],
                 muted = muted[2],
                 solo = solo[2],
@@ -485,6 +480,8 @@ fun StudioScreen(
                 index = 3,
                 borderColor = compactBorderColors[2],
                 hasAudio = existing[3],
+                durationMs = durations[3],
+                timelineDurationMs = timelineDuration,
                 volume = volumes[3],
                 muted = muted[3],
                 solo = solo[3],
@@ -505,6 +502,8 @@ fun StudioScreen(
                 index = 4,
                 borderColor = compactBorderColors[3],
                 hasAudio = existing[4],
+                durationMs = durations[4],
+                timelineDurationMs = timelineDuration,
                 volume = volumes[4],
                 muted = muted[4],
                 solo = solo[4],
@@ -524,6 +523,62 @@ fun StudioScreen(
         }
 
         Spacer(Modifier.height(10.dp))
+    }
+
+    if (exportNameDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!exporting) exportNameDialogOpen = false
+            },
+            title = {
+                Text(
+                    text = "Nom du mix",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = exportFileName,
+                    onValueChange = { exportFileName = it },
+                    singleLine = true,
+                    label = { Text("Nom du fichier") },
+                    suffix = { Text(".wav") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !exporting && exportFileName.trim().isNotEmpty(),
+                    onClick = {
+                        val requestedName = exportFileName.trim()
+                        exporting = true
+                        scope.launch {
+                            val uri = withContext(Dispatchers.IO) {
+                                engine.exportMix(settings(), requestedName)
+                            }
+                            exporting = false
+                            exportNameDialogOpen = false
+                            Toast.makeText(
+                                context,
+                                if (uri != null)
+                                    "Mix enregistré dans Music/MerylStudio"
+                                else "Export impossible",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                ) {
+                    Text(if (exporting) "EXPORT..." else "EXPORTER")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !exporting,
+                    onClick = { exportNameDialogOpen = false }
+                ) {
+                    Text("ANNULER")
+                }
+            }
+        )
     }
 }
 
@@ -670,6 +725,8 @@ private fun CompactStudioTrack(
     index: Int,
     borderColor: Color,
     hasAudio: Boolean,
+    durationMs: Long,
+    timelineDurationMs: Long,
     volume: Float,
     muted: Boolean,
     solo: Boolean,
@@ -689,7 +746,7 @@ private fun CompactStudioTrack(
             .padding(horizontal = 7.dp, vertical = 7.dp)
     ) {
         Text(
-            text = "PISTE \${index + 1}",
+            text = "PISTE " + (index + 1),
             color = if (recording) Color(0xFFFF6464) else Color.White,
             fontSize = 17.sp,
             fontWeight = FontWeight.ExtraBold,
@@ -734,6 +791,46 @@ private fun CompactStudioTrack(
         }
 
         Spacer(Modifier.height(5.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(18.dp)
+                .background(Color(0xFF0E1418), RoundedCornerShape(5.dp))
+                .padding(2.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (hasAudio) {
+                val clipFraction = (
+                    durationMs.toFloat() / timelineDurationMs.coerceAtLeast(1L).toFloat()
+                ).coerceIn(0.08f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(clipFraction)
+                        .height(14.dp)
+                        .background(
+                            borderColor.copy(alpha = 0.72f),
+                            RoundedCornerShape(4.dp)
+                        )
+                )
+                Text(
+                    text = formatStudioDuration(durationMs),
+                    color = Color.White,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 5.dp)
+                )
+            } else {
+                Text(
+                    text = if (recording) "ENREGISTREMENT..." else "VIDE",
+                    color = if (recording) Color(0xFFFF7777) else Color(0xFF536068),
+                    fontSize = 8.sp,
+                    modifier = Modifier.padding(start = 5.dp)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
 
         Row(
             modifier = Modifier
