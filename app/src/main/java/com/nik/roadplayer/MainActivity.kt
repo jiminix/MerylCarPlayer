@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.74")
+                PlayerHeader(version = "V0.75")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -267,6 +267,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
     var genreCategory by rememberSaveable { mutableStateOf("albums") }
     var genreMenuOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) } // 0 = Albums, 1 = Envoi
+    var studioOpen by rememberSaveable { mutableStateOf(false) }
     var sendPickerOpen by remember { mutableStateOf(false) }
     var sendAlbums by remember { mutableStateOf<List<Album>>(emptyList()) }
     var permissionGranted by remember { mutableStateOf(hasAudioPermission(context)) }
@@ -534,6 +535,10 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
         }
     }
 
+    BackHandler(enabled = studioOpen) {
+        studioOpen = false
+    }
+
     BackHandler(enabled = selectedAlbum != null) {
         selectedAlbum = null
     }
@@ -545,9 +550,11 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.74")
+            PlayerHeader(version = "V0.75")
 
-        if (selectedAlbum == null) {
+        if (studioOpen) {
+            StudioScreen(onBack = { studioOpen = false })
+        } else if (selectedAlbum == null) {
             if (selectedTab == 0) {
                 Row(
                     modifier = Modifier
@@ -560,6 +567,11 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                         enabled = !loading && !refreshing && permissionGranted,
                         onArtistSelected = { librarySortMode = "artist" },
                         onGenresClick = { genreMenuOpen = true },
+                        onStudioClick = {
+                            controller?.pause()
+                            selectedAlbum = null
+                            studioOpen = true
+                        },
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.size(4.dp))
@@ -709,7 +721,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
             )
         }
 
-            if (controller != null) {
+            if (!studioOpen && controller != null) {
                 PlayerBar(controller = controller!!)
             }
         }
@@ -1761,6 +1773,7 @@ private fun LibrarySortSelector(
     enabled: Boolean,
     onArtistSelected: () -> Unit,
     onGenresClick: () -> Unit,
+    onStudioClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val profile = LocalUiColorProfile.current
@@ -1836,6 +1849,23 @@ private fun LibrarySortSelector(
                     maxLines = 1
                 )
             }
+        }
+
+        // Studio multipistes : bouton micro compact.
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(if (enabled) Color(0xFF2F4B5A) else Color(0xFF1C272D))
+                .clickable(enabled = enabled) { onStudioClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "🎙",
+                fontSize = 18.sp,
+                maxLines = 1,
+                textAlign = TextAlign.Center
+            )
         }
 
         // Genre : icône seule, plus aucun libellé.
