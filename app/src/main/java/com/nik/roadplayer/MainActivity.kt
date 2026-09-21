@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V0.72 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V0.73 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.72")
+                PlayerHeader(version = "V0.73")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -545,14 +545,14 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.72")
+            PlayerHeader(version = "V0.73")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 6.dp),
+                        .padding(start = 8.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     LibrarySortSelector(
@@ -1795,15 +1795,14 @@ private fun LibrarySortSelector(
     modifier: Modifier = Modifier
 ) {
     val profile = LocalUiColorProfile.current
+    val homeSelected = mode == "artist"
+    val genreSelected = mode == "genre"
+
     Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF151515))
-            .padding(2.dp),
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        val homeSelected = mode == "artist"
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -1811,7 +1810,7 @@ private fun LibrarySortSelector(
                 .background(
                     when {
                         homeSelected -> profile.primary
-                        enabled -> Color.Transparent
+                        enabled -> Color(0xFF151515)
                         else -> Color(0xFF101010)
                     }
                 )
@@ -1832,16 +1831,15 @@ private fun LibrarySortSelector(
             )
         }
 
-        val genreSelected = mode == "genre"
         Box(
             modifier = Modifier
-                .weight(1f)
                 .height(38.dp)
+                .weight(1f)
                 .clip(RoundedCornerShape(11.dp))
                 .background(
                     when {
                         genreSelected -> profile.primary
-                        enabled -> Color.Transparent
+                        enabled -> Color(0xFF151515)
                         else -> Color(0xFF101010)
                     }
                 )
@@ -1850,12 +1848,12 @@ private fun LibrarySortSelector(
         ) {
             Text(
                 text = "GENRES",
-                fontSize = 10.sp,
-                fontWeight = if (genreSelected) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
                 color = when {
                     !enabled -> Color(0xFF555555)
                     genreSelected -> profile.onPrimary
-                    else -> Color(0xFF9A9A9A)
+                    else -> Color(0xFFD0D0D0)
                 },
                 maxLines = 1,
                 textAlign = TextAlign.Center,
@@ -2310,7 +2308,7 @@ private fun AlbumGrid(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 8.dp, bottom = 10.dp),
+                .padding(end = 48.dp, bottom = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
