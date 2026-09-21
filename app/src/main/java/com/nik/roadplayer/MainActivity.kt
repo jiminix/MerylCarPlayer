@@ -2606,7 +2606,7 @@ private fun AlbumGrid(
                     }
                 }
             }
-        }        }
+        }
     }
 }
 
