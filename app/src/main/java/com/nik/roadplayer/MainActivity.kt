@@ -242,7 +242,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.82")
+                PlayerHeader(version = "V0.83")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -554,7 +554,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.82")
+            PlayerHeader(version = "V0.83")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -1816,7 +1816,53 @@ private fun LibrarySortSelector(
             )
         }
 
-        // YouTube juste à côté d'Accueil : icône seule.
+        // Genre : icône seule, plus aucun libellé.
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(
+                    when {
+                        genreSelected -> profile.primary
+                        enabled -> Color(0xFF151515)
+                        else -> Color(0xFF101010)
+                    }
+                )
+                .clickable(enabled = enabled) { onGenresClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "♫",
+                fontSize = 21.sp,
+                fontWeight = FontWeight.Bold,
+                color = when {
+                    !enabled -> Color(0xFF555555)
+                    genreSelected -> profile.onPrimary
+                    else -> Color(0xFFD0D0D0)
+                },
+                maxLines = 1,
+                textAlign = TextAlign.Center
+            )
+        }
+        // Studio multipistes : bouton micro compact.
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(if (enabled) Color(0xFF2F4B5A) else Color(0xFF1C272D))
+                .clickable(enabled = enabled) { onStudioClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "🎙",
+                fontSize = 18.sp,
+                maxLines = 1,
+                textAlign = TextAlign.Center
+            )
+        }
+
+
+        // YouTube : quatrième bouton de la barre.
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -1853,51 +1899,6 @@ private fun LibrarySortSelector(
             }
         }
 
-        // Studio multipistes : bouton micro compact.
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(if (enabled) Color(0xFF2F4B5A) else Color(0xFF1C272D))
-                .clickable(enabled = enabled) { onStudioClick() },
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "🎙",
-                fontSize = 18.sp,
-                maxLines = 1,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        // Genre : icône seule, plus aucun libellé.
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(
-                    when {
-                        genreSelected -> profile.primary
-                        enabled -> Color(0xFF151515)
-                        else -> Color(0xFF101010)
-                    }
-                )
-                .clickable(enabled = enabled) { onGenresClick() },
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "♫",
-                fontSize = 21.sp,
-                fontWeight = FontWeight.Bold,
-                color = when {
-                    !enabled -> Color(0xFF555555)
-                    genreSelected -> profile.onPrimary
-                    else -> Color(0xFFD0D0D0)
-                },
-                maxLines = 1,
-                textAlign = TextAlign.Center
-            )
-        }
     }
 }
 
@@ -3536,6 +3537,7 @@ private fun PlayerBar(controller: MediaController) {
     var isPlaying by remember { mutableStateOf(controller.isPlaying) }
     var hasPrevious by remember { mutableStateOf(controller.hasPreviousMediaItem()) }
     var hasNext by remember { mutableStateOf(controller.hasNextMediaItem()) }
+    var repeatMode by remember { mutableStateOf(controller.repeatMode) }
     var currentTitle by remember {
         mutableStateOf(
             controller.currentMediaItem?.mediaMetadata?.displayTitle?.toString()
@@ -3570,6 +3572,7 @@ private fun PlayerBar(controller: MediaController) {
         artworkBytes = metadata?.artworkData
         hasPrevious = controller.hasPreviousMediaItem()
         hasNext = controller.hasNextMediaItem()
+        repeatMode = controller.repeatMode
         val duration = controller.duration.takeIf { it > 0L } ?: metadata?.durationMs ?: 0L
         remainingMs = (duration - controller.currentPosition.coerceAtLeast(0L)).coerceAtLeast(0L)
     }
@@ -3591,6 +3594,10 @@ private fun PlayerBar(controller: MediaController) {
 
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
                 refreshNowPlaying()
+            }
+
+            override fun onRepeatModeChanged(value: Int) {
+                repeatMode = value
             }
         }
         controller.addListener(listener)
@@ -3708,8 +3715,39 @@ private fun PlayerBar(controller: MediaController) {
             BigControl(if (isPlaying) "Ⅱ" else "▶", enabled = true) {
                 if (controller.isPlaying) controller.pause() else controller.play()
             }
+            RepeatControl(mode = repeatMode) {
+                val nextMode = when (controller.repeatMode) {
+                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                    else -> Player.REPEAT_MODE_OFF
+                }
+                controller.setRepeatMode(nextMode)
+                repeatMode = nextMode
+            }
             BigControl("⏭", enabled = hasNext) { controller.seekToNextMediaItem() }
         }
+    }
+}
+
+@Composable
+private fun RepeatControl(mode: Int, onClick: () -> Unit) {
+    val profile = LocalUiColorProfile.current
+    val active = mode != Player.REPEAT_MODE_OFF
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (active) profile.primary else Color(0xFF252A2D))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = if (mode == Player.REPEAT_MODE_ONE) "↻¹" else "↻",
+            fontSize = 23.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (active) profile.onPrimary else Color(0xFF9AA3A8),
+            maxLines = 1
+        )
     }
 }
 
