@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V0.71 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V0.72 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -238,7 +238,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.71")
+                PlayerHeader(version = "V0.72")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -545,7 +545,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.71")
+            PlayerHeader(version = "V0.72")
 
         if (selectedAlbum == null) {
             if (selectedTab == 0) {
@@ -1100,6 +1100,8 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
 
 @Composable
 private fun PlayerHeader(version: String) {
+    val context = LocalContext.current
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1109,7 +1111,6 @@ private fun PlayerHeader(version: String) {
             .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Affichage texte provisoire pour isoler un éventuel plantage du décodage d'image.
         Text(
             text = "MERYL CAR AUDIO",
             modifier = Modifier.weight(1f),
@@ -1118,6 +1119,35 @@ private fun PlayerHeader(version: String) {
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1
         )
+
+        Box(
+            modifier = Modifier
+                .height(34.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(Color(0xFFE62117))
+                .clickable {
+                    val playlistsUri = Uri.parse("https://www.youtube.com/feed/playlists")
+                    val youtubeIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
+                        setPackage("com.google.android.youtube")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    runCatching { context.startActivity(youtubeIntent) }
+                        .onFailure { runCatching { context.startActivity(fallbackIntent) } }
+                }
+                .padding(horizontal = 11.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "YouTube",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
 
         Text(
             text = version,
@@ -3343,6 +3373,9 @@ private fun PlayerBar(controller: MediaController) {
     var currentArtist by remember {
         mutableStateOf(controller.currentMediaItem?.mediaMetadata?.artist?.toString().orEmpty())
     }
+    var currentAlbum by remember {
+        mutableStateOf(controller.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty())
+    }
     var artworkBytes by remember {
         mutableStateOf(controller.currentMediaItem?.mediaMetadata?.artworkData)
     }
@@ -3360,6 +3393,7 @@ private fun PlayerBar(controller: MediaController) {
             ?: metadata?.title?.toString()
             ?: ""
         currentArtist = metadata?.artist?.toString().orEmpty()
+        currentAlbum = metadata?.albumTitle?.toString().orEmpty()
         artworkBytes = metadata?.artworkData
         hasPrevious = controller.hasPreviousMediaItem()
         hasNext = controller.hasNextMediaItem()
@@ -3409,15 +3443,15 @@ private fun PlayerBar(controller: MediaController) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(38.dp)
+                .height(58.dp)
                 .background(profile.primary.copy(alpha = 0.24f))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(5.dp))
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(7.dp))
                     .background(Color(0xFF11181C)),
                 contentAlignment = Alignment.Center
             ) {
@@ -3429,40 +3463,61 @@ private fun PlayerBar(controller: MediaController) {
                         contentScale = ContentScale.Fit
                     )
                 } else {
-                    Text("♪", color = Color(0xFF707070), fontSize = 15.sp)
+                    Text("♪", color = Color(0xFF707070), fontSize = 18.sp)
                 }
             }
 
-            Spacer(Modifier.size(7.dp))
+            Spacer(Modifier.size(9.dp))
 
-            val nowPlaying = when {
-                currentTitle.isBlank() -> "Aucune lecture"
-                currentArtist.isBlank() -> currentTitle
-                else -> "$currentArtist  •  $currentTitle"
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                val titleText = currentTitle.ifBlank { "Aucune lecture" }
+                Text(
+                    text = titleText,
+                    color = if (currentTitle.isBlank()) Color(0xFF8A8A8A) else Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = if (currentTitle.isBlank()) FontWeight.Normal else FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (currentTitle.isNotBlank()) Modifier.basicMarquee(iterations = Int.MAX_VALUE)
+                            else Modifier
+                        )
+                )
+
+                if (currentTitle.isNotBlank()) {
+                    val subtitle = listOf(currentArtist, currentAlbum)
+                        .filter { it.isNotBlank() }
+                        .joinToString("  •  ")
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            text = subtitle,
+                            color = Color(0xFFCCD4D8),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .basicMarquee(iterations = Int.MAX_VALUE)
+                        )
+                    }
+                }
             }
-            Text(
-                text = nowPlaying,
-                color = if (currentTitle.isBlank()) Color(0xFF737373) else Color(0xFFF2F2F2),
-                fontSize = 13.sp,
-                fontWeight = if (currentTitle.isBlank()) FontWeight.Normal else FontWeight.SemiBold,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-                modifier = Modifier
-                    .weight(1f)
-                    .then(
-                        if (currentTitle.isNotBlank()) Modifier.basicMarquee(iterations = Int.MAX_VALUE)
-                        else Modifier
-                    )
-            )
 
             if (currentTitle.isNotBlank()) {
-                Spacer(Modifier.size(8.dp))
+                Spacer(Modifier.size(10.dp))
                 Text(
                     text = "-${formatDuration(remainingMs)}",
                     color = profile.secondary,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1
                 )
             }
