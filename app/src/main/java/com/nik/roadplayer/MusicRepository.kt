@@ -128,6 +128,175 @@ class MusicRepository(private val context: Context) {
         if (tracks.isEmpty()) emptyList() else buildAlbumsFromTaggedTracks(tracks)
     }
 
+    /**
+     * Premier index ultra-rapide : une seule requête MediaStore par volume.
+     * Aucun MediaMetadataRetriever et aucun second passage par paquets d'IDs.
+     * Les tags détaillés pourront être enrichis plus tard par le bouton SCAN.
+     */
+    suspend fun fastBootstrapAlbumsFromMediaStore(
+        onProgress: suspend (Float) -> Unit = {}
+    ): List<Album> = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        val volumes = MediaStore.getExternalVolumeNames(context)
+            .filter { it != MediaStore.VOLUME_EXTERNAL_PRIMARY }
+
+        if (volumes.isEmpty()) {
+            onProgress(1f)
+            return@withContext emptyList()
+        }
+
+        val activePrefixes = volumes.map { "$it:" }
+        val inactiveKeys = trackIndex.keys.filter { key ->
+            activePrefixes.none { prefix -> key.startsWith(prefix) }
+        }
+        inactiveKeys.forEach { trackIndex.remove(it) }
+
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.TRACK,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.RELATIVE_PATH,
+            MediaStore.Audio.Media.DATE_MODIFIED,
+            MediaStore.Audio.Media.SIZE
+        )
+
+        for ((volumeIndex, volume) in volumes.withIndex()) {
+            val collection = MediaStore.Audio.Media.getContentUri(volume)
+            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?"
+            val args = arrayOf("Music/%")
+            val prefix = "$volume:"
+            val seenKeys = HashSet<String>()
+
+            val base = volumeIndex.toFloat() / volumes.size.coerceAtLeast(1)
+            val span = 1f / volumes.size.coerceAtLeast(1)
+            onProgress(base)
+
+            resolver.query(collection, projection, selection, args, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val trackCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
+                val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
+                val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+
+                val total = cursor.count.coerceAtLeast(1)
+                var row = 0
+                while (cursor.moveToNext()) {
+                    row++
+                    val displayName = cursor.getString(nameCol) ?: continue
+                    if (!isSupported(displayName)) continue
+
+                    val id = cursor.getLong(idCol)
+                    val cacheKey = "$volume:$id"
+                    seenKeys += cacheKey
+
+                    val relativePath = cursor.getString(pathCol).orEmpty()
+                    val mediaAlbum = cleanTag(cursor.getString(albumCol))
+                    val mediaArtist = cleanTag(cursor.getString(artistCol))
+                    val mediaTitle = cleanTag(cursor.getString(titleCol))
+                    val rawTrack = cursor.getInt(trackCol)
+                    val dateModified = cursor.getLong(modifiedCol)
+                    val fileSize = cursor.getLong(sizeCol)
+                    val previous = trackIndex[cacheKey]
+
+                    val rawAlbumTitle = mediaAlbum
+                        ?: albumFromPath(relativePath)
+                        ?: previous?.track?.albumTitle
+                        ?: "Album inconnu"
+                    val albumTitle = stripDiscSuffix(rawAlbumTitle).ifBlank { rawAlbumTitle }
+                    val artist = mediaArtist
+                        ?: previous?.track?.artist
+                        ?: "Artiste inconnu"
+                    val title = mediaTitle
+                        ?: previous?.track?.title
+                        ?: displayName.substringBeforeLast('.')
+                    val trackNumber = mediaStoreTrackNumber(rawTrack)
+                        ?: leadingNumber(displayName)
+                        ?: previous?.track?.trackNumber
+                        ?: Int.MAX_VALUE
+                    val discNumber = mediaStoreDiscNumber(rawTrack)
+                        ?: discFromPath(relativePath)
+                        ?: previous?.track?.discNumber
+                        ?: 1
+                    val albumId = cursor.getLong(albumIdCol)
+                    val folderIdentity = albumFolderIdentity(relativePath)
+                    val groupIdentity = folderIdentity.takeIf { it.isNotBlank() }
+                        ?: normalizeKey(previous?.track?.albumArtist?.takeIf { it.isNotBlank() } ?: artist)
+
+                    val track = Track(
+                        id = id,
+                        uri = ContentUris.withAppendedId(collection, id),
+                        title = title,
+                        artist = artist,
+                        composer = previous?.track?.composer.orEmpty(),
+                        albumTitle = albumTitle,
+                        albumArtist = previous?.track?.albumArtist.orEmpty(),
+                        albumId = albumId,
+                        trackNumber = trackNumber,
+                        discNumber = discNumber,
+                        durationMs = cursor.getLong(durationCol).coerceAtLeast(0L),
+                        relativePath = relativePath,
+                        releaseDate = previous?.track?.releaseDate.orEmpty(),
+                        genre = previous?.track?.genre.orEmpty()
+                    )
+
+                    trackIndex[cacheKey] = CachedIndexedTrack(
+                        dateModified = dateModified,
+                        fileSize = fileSize,
+                        displayName = displayName,
+                        track = track,
+                        groupAlbumTitle = normalizeKey(albumTitle),
+                        groupIdentity = groupIdentity
+                    )
+
+                    if (row == total || row % 250 == 0) {
+                        onProgress((base + span * (row.toFloat() / total)).coerceIn(0f, 0.96f))
+                    }
+                }
+            }
+
+            // Supprime seulement les anciennes lignes de CE volume qui ne sont plus dans MediaStore.
+            trackIndex.keys
+                .filter { it.startsWith(prefix) && it !in seenKeys }
+                .forEach { trackIndex.remove(it) }
+
+            mediaStoreGeneration(volume)?.let { generation ->
+                scanStatePrefs.edit()
+                    .putLong(scanGenerationKey(volume), generation)
+                    .putBoolean(scanReadyKey(volume), true)
+                    .apply()
+            }
+        }
+
+        onProgress(0.97f)
+        saveTrackIndex()
+
+        val taggedTracks = trackIndex.entries.asSequence()
+            .filter { (key, _) -> activePrefixes.any { prefix -> key.startsWith(prefix) } }
+            .map { (_, cached) ->
+                TaggedTrack(
+                    track = cached.track,
+                    groupAlbumTitle = cached.groupAlbumTitle,
+                    groupIdentity = cached.groupIdentity
+                )
+            }
+            .toList()
+
+        val result = buildAlbumsFromTaggedTracks(taggedTracks)
+        onProgress(1f)
+        result
+    }
+
     suspend fun quickRefreshAlbumsFromSdMusic(
         includePhysicalChanges: Boolean = true,
         onProgress: suspend (Float) -> Unit = {}
