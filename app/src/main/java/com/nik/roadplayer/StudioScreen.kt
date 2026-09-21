@@ -357,9 +357,23 @@ fun StudioScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             StudioTransportButton(
+                text = "⏮ DÉBUT",
+                enabled = recordingTrack == null && !exporting,
+                modifier = Modifier.width(72.dp)
+            ) {
+                engine.stopPlayback()
+                playing = false
+                playbackStartOffset = 0L
+                playbackStartedAt = 0L
+                playheadMs = 0L
+            }
+
+            Spacer(Modifier.width(6.dp))
+
+            StudioTransportButton(
                 text = if (playing) "■" else "▶",
                 enabled = recordingTrack == null && existing.any { it } && !exporting,
-                modifier = Modifier.width(92.dp)
+                modifier = Modifier.width(70.dp)
             ) {
                 if (playing) {
                     engine.stopPlayback()
@@ -380,12 +394,12 @@ fun StudioScreen(
                 }
             }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
 
             StudioTransportButton(
                 text = "■ STOP",
                 enabled = recordingTrack != null || playing,
-                modifier = Modifier.width(92.dp)
+                modifier = Modifier.width(78.dp)
             ) {
                 if (recordingTrack != null) {
                     val stoppedTrack = recordingTrack
@@ -403,12 +417,12 @@ fun StudioScreen(
                 }
             }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
 
             StudioTransportButton(
                 text = if (exporting) "MIX..." else "EXPORT",
                 enabled = recordingTrack == null && existing.any { it } && !exporting,
-                modifier = Modifier.width(92.dp)
+                modifier = Modifier.width(78.dp)
             ) {
                 playing = false
                 engine.stopPlayback()
