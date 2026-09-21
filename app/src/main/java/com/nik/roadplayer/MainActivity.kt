@@ -242,7 +242,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.80")
+                PlayerHeader(version = "V0.81")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -554,7 +554,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.80")
+            PlayerHeader(version = "V0.81")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -1119,27 +1119,25 @@ private fun PlayerHeader(version: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(68.dp)
             .zIndex(1f)
             .background(Color(0xFF202830))
-            .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+            .padding(start = 5.dp, end = 7.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = "MERYL CAR AUDIO",
-            modifier = Modifier.weight(1f),
-            color = Color(0xFFFFDE59),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 1
+        MerylBanner(
+            kind = MerylBannerKind.CAR_AUDIO,
+            modifier = Modifier
+                .weight(1f)
+                .height(60.dp)
         )
 
         Text(
             text = version,
             color = Color(0xFFDCE3E8),
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 8.dp)
+            modifier = Modifier.padding(start = 4.dp)
         )
     }
 
@@ -2251,29 +2249,12 @@ private fun AlbumGrid(
                                         maxWidth - spacing * (columns - 1).coerceAtLeast(0)
                                     ) / columns.coerceAtLeast(1)
                                 }
-                                // Calcule la taille des petites pochettes à partir de
-                                // l'espace réellement disponible entre les deux flèches.
-                                // Ainsi aucune pochette ne peut dépasser ou être coupée.
-                                val sideWidth = (maxWidth - mainSize - spacing)
-                                    .coerceAtLeast(90.dp)
-                                val visibleCount = when (columns) {
-                                    1 -> 2
-                                    2 -> 2
-                                    3 -> 3
-                                    else -> 4
-                                }.coerceAtLeast(1)
-                                val navigationWidth = 68.dp
-                                val albumGaps =
-                                    spacing * (visibleCount - 1).coerceAtLeast(0)
-                                val fittedSmallSize = (
-                                    (sideWidth - navigationWidth - albumGaps) /
-                                        visibleCount.coerceAtLeast(1)
-                                )
-                                    .coerceAtLeast(34.dp)
-                                    .coerceAtMost(mainSize * 0.52f)
-                                val pageCount = (
-                                    (otherAlbums.size + visibleCount - 1) / visibleCount
-                                ).coerceAtLeast(1)
+                                // V0.81 TEST : les autres albums reprennent
+                                // exactement la taille d'une pochette normale de la grille.
+                                // On en affiche un par page pour garantir une pochette entière.
+                                val visibleCount = 1
+                                val fittedSmallSize = mainSize
+                                val pageCount = otherAlbums.size.coerceAtLeast(1)
                                 val safePage = expandedArtistPage.coerceIn(0, pageCount - 1)
                                 val startIndex = safePage * visibleCount
                                 val pageAlbums = otherAlbums
@@ -2331,8 +2312,8 @@ private fun AlbumGrid(
                                         ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(30.dp)
-                                                    .clip(RoundedCornerShape(15.dp))
+                                                    .size(width = 24.dp, height = 36.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
                                                     .background(
                                                         if (safePage > 0) Color(0xDD252525)
                                                         else Color(0x66252525)
@@ -2388,8 +2369,8 @@ private fun AlbumGrid(
 
                                             Box(
                                                 modifier = Modifier
-                                                    .size(30.dp)
-                                                    .clip(RoundedCornerShape(15.dp))
+                                                    .size(width = 24.dp, height = 36.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
                                                     .background(
                                                         if (safePage < pageCount - 1) Color(0xDD252525)
                                                         else Color(0x66252525)
