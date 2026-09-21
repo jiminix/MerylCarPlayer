@@ -2352,7 +2352,7 @@ private fun AlbumGrid(
                             )
                         }
                     }
-                }                }
+                }
             }
 
         }
