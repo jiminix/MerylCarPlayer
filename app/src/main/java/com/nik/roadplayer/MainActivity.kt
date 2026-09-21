@@ -242,7 +242,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.81")
+                PlayerHeader(version = "V0.82")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -554,7 +554,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.81")
+            PlayerHeader(version = "V0.82")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -2095,17 +2095,11 @@ private fun AlbumGrid(
     // V0.53 : la vue Artistes n'affiche qu'une seule pochette par artiste.
     // Un appui long ouvre les autres albums du même artiste à côté de la pochette.
     var expandedArtist by rememberSaveable { mutableStateOf<String?>(null) }
-    var expandedArtistPage by rememberSaveable { mutableStateOf(0) }
     var azPickerOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(groupMode) {
         expandedArtist = null
-        expandedArtistPage = 0
         azPickerOpen = false
-    }
-
-    LaunchedEffect(expandedArtist) {
-        expandedArtistPage = 0
     }
 
     val artistRepresentatives = remember(artistGroups) {
@@ -2217,228 +2211,42 @@ private fun AlbumGrid(
                 }
                 groupedArtists.forEach { (artist, artistAlbums) ->
                     val representativeAlbum = artistAlbums.first()
-                    val isExpandedArtist = expandedArtist == artist
                     item(
                         key = "artist-" + representativeAlbum.key,
-                        span = {
-                            GridItemSpan(
-                                if (isExpandedArtist && artistAlbums.size > 1) columns else 1
-                            )
-                        }
+                        span = { GridItemSpan(1) }
                     ) {
-                        if (isExpandedArtist && artistAlbums.size > 1) {
-                            val otherAlbums = artistAlbums.filterNot {
-                                it.key == representativeAlbum.key
-                            }
-
-                            BoxWithConstraints(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(
-                                        width = 2.dp,
-                                        color = Color(0xFFFFDE59),
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .background(Color(0xFF151515), RoundedCornerShape(8.dp))
-                                    .padding(4.dp)
-                            ) {
-                                val mainSize = if (columns == 1) {
-                                    maxWidth * 0.46f
-                                } else {
-                                    (
-                                        maxWidth - spacing * (columns - 1).coerceAtLeast(0)
-                                    ) / columns.coerceAtLeast(1)
-                                }
-                                // V0.81 TEST : les autres albums reprennent
-                                // exactement la taille d'une pochette normale de la grille.
-                                // On en affiche un par page pour garantir une pochette entière.
-                                val visibleCount = 1
-                                val fittedSmallSize = mainSize
-                                val pageCount = otherAlbums.size.coerceAtLeast(1)
-                                val safePage = expandedArtistPage.coerceIn(0, pageCount - 1)
-                                val startIndex = safePage * visibleCount
-                                val pageAlbums = otherAlbums
-                                    .drop(startIndex)
-                                    .take(visibleCount)
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(spacing),
-                                    verticalAlignment = Alignment.CenterVertically
+                        AlbumCover(
+                            album = representativeAlbum,
+                            repository = repository,
+                            artworkRevision = artworkRevision,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .pointerInput(
+                                    artist,
+                                    representativeAlbum.key,
+                                    artistAlbums.size
                                 ) {
-                                    AlbumCover(
-                                        album = representativeAlbum,
-                                        repository = repository,
-                                        artworkRevision = artworkRevision,
-                                        modifier = Modifier
-                                            .size(mainSize)
-                                            .border(
-                                                width = 3.dp,
-                                                color = Color(0xFFFFDE59),
-                                                shape = RoundedCornerShape(7.dp)
-                                            )
-                                            .padding(3.dp)
-                                            .pointerInput(
-                                                artist,
-                                                representativeAlbum.key,
-                                                artistAlbums.size
-                                            ) {
-                                                detectTapGestures(
-                                                    onTap = {
-                                                        expandedArtist = null
-                                                        onAlbumClick(representativeAlbum)
-                                                    },
-                                                    onDoubleTap = {
-                                                        expandedArtist = null
-                                                        onAlbumLongPress(representativeAlbum)
-                                                    },
-                                                    onLongPress = {
-                                                        expandedArtist = null
-                                                    }
-                                                )
-                                            }
-                                    )
-
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(mainSize),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 24.dp, height = 36.dp)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(
-                                                        if (safePage > 0) Color(0xDD252525)
-                                                        else Color(0x66252525)
-                                                    )
-                                                    .clickable(enabled = safePage > 0) {
-                                                        expandedArtistPage = safePage - 1
-                                                    },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    "‹",
-                                                    color = if (safePage > 0) Color.White
-                                                    else Color(0xFF666666),
-                                                    fontSize = 22.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-
-                                            Row(
-                                                modifier = Modifier.weight(1f),
-                                                horizontalArrangement = Arrangement.spacedBy(spacing),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                pageAlbums.forEach { album ->
-                                                    AlbumCover(
-                                                        album = album,
-                                                        repository = repository,
-                                                        artworkRevision = artworkRevision,
-                                                        compact = true,
-                                                        modifier = Modifier
-                                                            .size(fittedSmallSize)
-                                                            .border(
-                                                                width = 1.5.dp,
-                                                                color = Color(0xFFFFDE59),
-                                                                shape = RoundedCornerShape(5.dp)
-                                                            )
-                                                            .padding(2.dp)
-                                                            .pointerInput(album.key) {
-                                                                detectTapGestures(
-                                                                    onTap = {
-                                                                        expandedArtist = null
-                                                                        onAlbumClick(album)
-                                                                    },
-                                                                    onDoubleTap = {
-                                                                        expandedArtist = null
-                                                                        onAlbumLongPress(album)
-                                                                    }
-                                                                )
-                                                            }
-                                                    )
-                                                }
-                                            }
-
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 24.dp, height = 36.dp)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(
-                                                        if (safePage < pageCount - 1) Color(0xDD252525)
-                                                        else Color(0x66252525)
-                                                    )
-                                                    .clickable(enabled = safePage < pageCount - 1) {
-                                                        expandedArtistPage = safePage + 1
-                                                    },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    "›",
-                                                    color = if (safePage < pageCount - 1) Color.White
-                                                    else Color(0xFF666666),
-                                                    fontSize = 22.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-
-                                        if (pageCount > 1) {
-                                            Text(
-                                                text = "${safePage + 1}/$pageCount",
-                                                color = Color(0xFF9A9A9A),
-                                                fontSize = 9.sp,
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomCenter)
-                                                    .padding(bottom = 1.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }                        } else {
-                            AlbumCover(
-                                album = representativeAlbum,
-                                repository = repository,
-                                artworkRevision = artworkRevision,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f)
-                                    .pointerInput(
-                                        artist,
-                                        representativeAlbum.key,
-                                        artistAlbums.size
-                                    ) {
-                                        detectTapGestures(
-                                            onTap = {
-                                                if (expandedArtist != artist) {
-                                                    expandedArtist = null
-                                                }
+                                    detectTapGestures(
+                                        onTap = {
+                                            onAlbumClick(representativeAlbum)
+                                        },
+                                        onDoubleTap = {
+                                            expandedArtist = null
+                                            onAlbumLongPress(representativeAlbum)
+                                        },
+                                        onLongPress = {
+                                            if (artistAlbums.size > 1) {
+                                                expandedArtist = artist
+                                            } else {
                                                 onAlbumClick(representativeAlbum)
-                                            },
-                                            onDoubleTap = {
-                                                expandedArtist = null
-                                                onAlbumLongPress(representativeAlbum)
-                                            },
-                                            onLongPress = {
-                                                expandedArtist =
-                                                    if (
-                                                        artistAlbums.size > 1 &&
-                                                        expandedArtist != artist
-                                                    ) artist else null
                                             }
-                                        )
-                                    }
-                            )
-                        }
+                                        }
+                                    )
+                                }
+                        )
                     }
-                }
+                }                }
             }
 
         }
@@ -2597,6 +2405,142 @@ private fun AlbumGrid(
                                 Spacer(Modifier.weight(1f))
                             }
                         }
+                    }
+                }
+            }
+        }
+
+
+        if (expandedArtist != null && expandedArtistAlbums.isNotEmpty()) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(20f)
+                    .background(Color(0xFA101417))
+                    .padding(6.dp)
+            ) {
+                val albumCount = expandedArtistAlbums.size
+                val gap = 5.dp
+                val headerHeight = 48.dp
+                val availableWidth = (maxWidth - 4.dp).coerceAtLeast(1.dp)
+                val availableHeight = (maxHeight - headerHeight - 8.dp).coerceAtLeast(1.dp)
+
+                var bestColumns = 1
+                var bestSize = 1.dp
+
+                for (candidateColumns in 1..albumCount.coerceAtLeast(1)) {
+                    val rows = (albumCount + candidateColumns - 1) / candidateColumns
+                    val widthForAlbums =
+                        availableWidth - gap * (candidateColumns - 1).coerceAtLeast(0)
+                    val heightForAlbums =
+                        availableHeight - gap * (rows - 1).coerceAtLeast(0)
+                    val candidateSize = minOf(
+                        widthForAlbums / candidateColumns,
+                        heightForAlbums / rows
+                    )
+                    if (candidateSize > bestSize) {
+                        bestSize = candidateSize
+                        bestColumns = candidateColumns
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(headerHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF1B2329))
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = expandedArtist.orEmpty(),
+                                color = Color.White,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "$albumCount album${if (albumCount > 1) "s" else ""}",
+                                color = Color(0xFFAEB9C0),
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color(0xFF303A40))
+                                .clickable { expandedArtist = null },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "×",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(
+                            gap,
+                            Alignment.CenterVertically
+                        ),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        expandedArtistAlbums
+                            .chunked(bestColumns)
+                            .forEach { rowAlbums ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(
+                                        gap,
+                                        Alignment.CenterHorizontally
+                                    ),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    rowAlbums.forEach { album ->
+                                        AlbumCover(
+                                            album = album,
+                                            repository = repository,
+                                            artworkRevision = artworkRevision,
+                                            modifier = Modifier
+                                                .size(bestSize)
+                                                .clip(RoundedCornerShape(7.dp))
+                                                .border(
+                                                    width = 1.5.dp,
+                                                    color = Color(0xFFFFDE59),
+                                                    shape = RoundedCornerShape(7.dp)
+                                                )
+                                                .pointerInput(album.key) {
+                                                    detectTapGestures(
+                                                        onTap = {
+                                                            expandedArtist = null
+                                                            onAlbumClick(album)
+                                                        },
+                                                        onDoubleTap = {
+                                                            expandedArtist = null
+                                                            onAlbumLongPress(album)
+                                                        }
+                                                    )
+                                                }
+                                        )
+                                    }
+                                }
+                            }
                     }
                 }
             }
