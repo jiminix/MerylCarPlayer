@@ -242,7 +242,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.79")
+                PlayerHeader(version = "V0.80")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -554,7 +554,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.79")
+            PlayerHeader(version = "V0.80")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -2251,13 +2251,26 @@ private fun AlbumGrid(
                                         maxWidth - spacing * (columns - 1).coerceAtLeast(0)
                                     ) / columns.coerceAtLeast(1)
                                 }
-                                val smallSize = mainSize / 2f
+                                // Calcule la taille des petites pochettes à partir de
+                                // l'espace réellement disponible entre les deux flèches.
+                                // Ainsi aucune pochette ne peut dépasser ou être coupée.
+                                val sideWidth = (maxWidth - mainSize - spacing)
+                                    .coerceAtLeast(90.dp)
                                 val visibleCount = when (columns) {
                                     1 -> 2
-                                    2 -> 1
+                                    2 -> 2
                                     3 -> 3
-                                    else -> 5
+                                    else -> 4
                                 }.coerceAtLeast(1)
+                                val navigationWidth = 68.dp
+                                val albumGaps =
+                                    spacing * (visibleCount - 1).coerceAtLeast(0)
+                                val fittedSmallSize = (
+                                    (sideWidth - navigationWidth - albumGaps) /
+                                        visibleCount.coerceAtLeast(1)
+                                )
+                                    .coerceAtLeast(34.dp)
+                                    .coerceAtMost(mainSize * 0.52f)
                                 val pageCount = (
                                     (otherAlbums.size + visibleCount - 1) / visibleCount
                                 ).coerceAtLeast(1)
@@ -2350,7 +2363,7 @@ private fun AlbumGrid(
                                                         artworkRevision = artworkRevision,
                                                         compact = true,
                                                         modifier = Modifier
-                                                            .size(smallSize)
+                                                            .size(fittedSmallSize)
                                                             .border(
                                                                 width = 1.5.dp,
                                                                 color = Color(0xFFFFDE59),
