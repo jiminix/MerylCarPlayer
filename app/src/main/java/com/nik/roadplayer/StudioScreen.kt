@@ -36,7 +36,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -118,6 +121,8 @@ fun StudioScreen(
     var recordingStartedAt by remember { mutableStateOf(0L) }
     var playheadMs by remember { mutableStateOf(0L) }
     var pendingRecord by remember { mutableStateOf<Int?>(null) }
+    var exportNameDialogOpen by remember { mutableStateOf(false) }
+    var exportFileName by remember { mutableStateOf("") }
 
     val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
     val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
@@ -269,14 +274,47 @@ fun StudioScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f)
             )
-            Text(
-                text = if (recordingTrack != null) "● REC \${recordingTrack!! + 1}" else "5 PISTES",
-                color = if (recordingTrack != null) Color(0xFFFF6666) else Color(0xFF9BAAB2),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(62.dp),
-                textAlign = TextAlign.End
-            )
+            Box(
+                modifier = Modifier
+                    .width(72.dp)
+                    .height(32.dp)
+                    .background(
+                        if (recordingTrack == null && !exporting && existing.any { it })
+                            Color(0xFF7E2020)
+                        else Color(0xFF322428),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clickable(
+                        enabled = recordingTrack == null && !exporting && existing.any { it }
+                    ) {
+                        engine.stopPlayback()
+                        playing = false
+                        engine.deleteAllTracks()
+                        repeat(STUDIO_TRACK_COUNT) { index ->
+                            existing[index] = false
+                            durations[index] = 0L
+                            peaks[index] = emptyList()
+                            volumes[index] = 1f
+                            muted[index] = false
+                            solo[index] = false
+                        }
+                        playheadMs = 0L
+                        Toast.makeText(
+                            context,
+                            "Tous les enregistrements ont été supprimés",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "SUPPR. TOUT",
+                    color = if (existing.any { it }) Color.White else Color(0xFF6E6265),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
         }
 
         Spacer(Modifier.height(6.dp))
