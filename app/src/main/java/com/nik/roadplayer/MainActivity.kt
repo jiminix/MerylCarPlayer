@@ -27,11 +27,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -238,7 +241,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.75")
+                PlayerHeader(version = "V0.76")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -550,7 +553,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.75")
+            PlayerHeader(version = "V0.76")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -2091,7 +2094,7 @@ private fun AlbumGrid(
     }
 
     // V0.53 : la vue Artistes n'affiche qu'une seule pochette par artiste.
-    // Un double appui sur cette pochette ouvre ensuite tous les albums de l'artiste.
+    // Un appui long ouvre les autres albums du même artiste à côté de la pochette.
     var expandedArtist by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(groupMode) {
@@ -2208,53 +2211,19 @@ private fun AlbumGrid(
                 groupedArtists.forEach { (artist, artistAlbums) ->
                     val representativeAlbum = artistAlbums.first()
                     val isExpandedArtist = expandedArtist == artist
-                    item(key = "artist-" + representativeAlbum.key) {
-                        AlbumCover(
-                            album = representativeAlbum,
-                            repository = repository,
-                            artworkRevision = artworkRevision,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f)
-                                .then(
-                                    if (isExpandedArtist) {
-                                        Modifier
-                                            .border(
-                                                width = 3.dp,
-                                                color = Color(0xFFFFDE59),
-                                                shape = RoundedCornerShape(7.dp)
-                                            )
-                                            .padding(3.dp)
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                                .pointerInput(artist, representativeAlbum.key, artistAlbums.size) {
-                                    detectTapGestures(
-                                        onTap = {
-                                            if (expandedArtist != artist) expandedArtist = null
-                                            onAlbumClick(representativeAlbum)
-                                        },
-                                        onDoubleTap = {
-                                            expandedArtist = null
-                                            onAlbumLongPress(representativeAlbum)
-                                        },
-                                        onLongPress = {
-                                            expandedArtist =
-                                                if (artistAlbums.size > 1 && expandedArtist != artist)
-                                                    artist else null
-                                        }
-                                    )
-                                }
-                        )
-                    }
-                    if (expandedArtist == artist && artistAlbums.size > 1) {
-                        item(
-                            key = "artist-more-" + representativeAlbum.key,
-                            span = { GridItemSpan(columns) }
-                        ) {
-                            val otherAlbums = artistAlbums.filterNot { it.key == representativeAlbum.key }
-                            Column(
+                    item(
+                        key = "artist-" + representativeAlbum.key,
+                        span = {
+                            GridItemSpan(
+                                if (isExpandedArtist && artistAlbums.size > 1) columns else 1
+                            )
+                        }
+                    ) {
+                        if (isExpandedArtist && artistAlbums.size > 1) {
+                            val otherAlbums = artistAlbums.filterNot {
+                                it.key == representativeAlbum.key
+                            }
+                            BoxWithConstraints(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .border(
@@ -2262,24 +2231,68 @@ private fun AlbumGrid(
                                         color = Color(0xFFFFDE59),
                                         shape = RoundedCornerShape(8.dp)
                                     )
-                                    .background(Color(0xFFFFDE59), RoundedCornerShape(8.dp))
-                                    .padding(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(spacing)
+                                    .background(Color(0xFF151515), RoundedCornerShape(8.dp))
+                                    .padding(4.dp)
                             ) {
-                                otherAlbums.chunked(columns * 2).forEach { rowAlbums ->
+                                val mainSize = (
+                                    maxWidth - spacing * (columns - 1).coerceAtLeast(0)
+                                ) / columns.coerceAtLeast(1)
+                                val smallSize = mainSize / 2f
+                                val sideScroll = rememberScrollState()
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(spacing),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AlbumCover(
+                                        album = representativeAlbum,
+                                        repository = repository,
+                                        artworkRevision = artworkRevision,
+                                        modifier = Modifier
+                                            .size(mainSize)
+                                            .border(
+                                                width = 3.dp,
+                                                color = Color(0xFFFFDE59),
+                                                shape = RoundedCornerShape(7.dp)
+                                            )
+                                            .padding(3.dp)
+                                            .pointerInput(
+                                                artist,
+                                                representativeAlbum.key,
+                                                artistAlbums.size
+                                            ) {
+                                                detectTapGestures(
+                                                    onTap = {
+                                                        expandedArtist = null
+                                                        onAlbumClick(representativeAlbum)
+                                                    },
+                                                    onDoubleTap = {
+                                                        expandedArtist = null
+                                                        onAlbumLongPress(representativeAlbum)
+                                                    },
+                                                    onLongPress = {
+                                                        expandedArtist = null
+                                                    }
+                                                )
+                                            }
+                                    )
+
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(spacing)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .horizontalScroll(sideScroll),
+                                        horizontalArrangement = Arrangement.spacedBy(spacing),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        rowAlbums.forEach { album ->
+                                        otherAlbums.forEach { album ->
                                             AlbumCover(
                                                 album = album,
                                                 repository = repository,
                                                 artworkRevision = artworkRevision,
                                                 compact = true,
                                                 modifier = Modifier
-                                                    .weight(1f)
-                                                    .aspectRatio(1f)
+                                                    .size(smallSize)
                                                     .border(
                                                         width = 1.5.dp,
                                                         color = Color(0xFFFFDE59),
@@ -2300,15 +2313,46 @@ private fun AlbumGrid(
                                                     }
                                             )
                                         }
-                                        repeat(columns * 2 - rowAlbums.size) {
-                                            Spacer(Modifier.weight(1f))
-                                        }
                                     }
                                 }
                             }
+                        } else {
+                            AlbumCover(
+                                album = representativeAlbum,
+                                repository = repository,
+                                artworkRevision = artworkRevision,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .pointerInput(
+                                        artist,
+                                        representativeAlbum.key,
+                                        artistAlbums.size
+                                    ) {
+                                        detectTapGestures(
+                                            onTap = {
+                                                if (expandedArtist != artist) {
+                                                    expandedArtist = null
+                                                }
+                                                onAlbumClick(representativeAlbum)
+                                            },
+                                            onDoubleTap = {
+                                                expandedArtist = null
+                                                onAlbumLongPress(representativeAlbum)
+                                            },
+                                            onLongPress = {
+                                                expandedArtist =
+                                                    if (
+                                                        artistAlbums.size > 1 &&
+                                                        expandedArtist != artist
+                                                    ) artist else null
+                                            }
+                                        )
+                                    }
+                            )
                         }
                     }
-                }
+                }                }
             }
 
         }
