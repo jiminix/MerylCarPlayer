@@ -369,6 +369,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = if (playing) "■" else "▶",
                 enabled = recordingTrack == null && existing.any { it } && !exporting,
+                activeColor = Color(0xFF208457),
                 modifier = Modifier.width(70.dp)
             ) {
                 if (playing) {
@@ -395,6 +396,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = "■ STOP",
                 enabled = recordingTrack != null || playing,
+                activeColor = Color(0xFFB33E44),
                 modifier = Modifier.width(78.dp)
             ) {
                 if (recordingTrack != null) {
@@ -418,6 +420,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = if (exporting) "MIX..." else "EXPORT",
                 enabled = recordingTrack == null && existing.any { it } && !exporting,
+                activeColor = Color(0xFF3268AF),
                 modifier = Modifier.width(78.dp)
             ) {
                 playing = false
@@ -1018,13 +1021,14 @@ private fun StudioTransportButton(
     text: String,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    activeColor: Color = Color(0xFF2A343A),
     onClick: () -> Unit
 ) {
     Box(
         modifier = modifier
             .height(38.dp)
             .background(
-                if (enabled) Color(0xFF2A343A) else Color(0xFF1A2024),
+                if (enabled) activeColor else Color(0xFF1A2024),
                 RoundedCornerShape(10.dp)
             )
             .clickable(enabled = enabled, onClick = onClick),
