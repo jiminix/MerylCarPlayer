@@ -245,7 +245,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.93")
+                PlayerHeader(version = "V0.94")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -557,10 +557,42 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.93")
+            PlayerHeader(version = "V0.94")
 
         if (studioOpen) {
-            StudioScreen(onBack = { studioOpen = false })
+            StudioScreen(
+                onBack = { studioOpen = false },
+                scanEnabled = !loading && !refreshing && permissionGranted,
+                scanning = refreshing,
+                scanColor = colorProfile.secondary,
+                onScan = {
+                    coroutineScope.launch {
+                        refreshing = true
+                        scanProgress = 0f
+                        try {
+                            val beforeKeys = albums.mapTo(mutableSetOf()) { it.key }
+                            val refreshed = repository.quickRefreshAlbumsFromSdMusic { progress ->
+                                withContext(Dispatchers.Main) {
+                                    scanProgress = progress.coerceIn(0f, 1f)
+                                }
+                            }
+                            scanProgress = 1f
+                            val newCount = refreshed.count { it.key !in beforeKeys }
+                            albums = refreshed
+                            playlists = repository.listPlaylists()
+                            Toast.makeText(
+                                context,
+                                if (newCount > 0) "$newCount nouvel album détecté" else "Aucune nouveauté détectée",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } finally {
+                            delay(180)
+                            scanProgress = null
+                            refreshing = false
+                        }
+                    }
+                }
+            )
         } else if (selectedAlbum == null) {
             if (selectedTab == 0) {
                 Row(
@@ -664,39 +696,6 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                         )
                     }
 
-                    RefreshLibraryButton(
-                        enabled = !loading && !refreshing && permissionGranted,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 10.dp, bottom = 10.dp),
-                        onClick = {
-                            coroutineScope.launch {
-                                refreshing = true
-                                scanProgress = 0f
-                                try {
-                                    val beforeKeys = albums.mapTo(mutableSetOf()) { it.key }
-                                    val refreshed = repository.quickRefreshAlbumsFromSdMusic { progress ->
-                                        withContext(Dispatchers.Main) {
-                                            scanProgress = progress.coerceIn(0f, 1f)
-                                        }
-                                    }
-                                    scanProgress = 1f
-                                    val newCount = refreshed.count { it.key !in beforeKeys }
-                                    albums = refreshed
-                                    playlists = repository.listPlaylists()
-                                    Toast.makeText(
-                                        context,
-                                        if (newCount > 0) "$newCount nouvel album détecté" else "Aucune nouveauté détectée",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } finally {
-                                    delay(180)
-                                    scanProgress = null
-                                    refreshing = false
-                                }
-                            }
-                        }
-                    )
                 }
             } else {
                 SendScreen(

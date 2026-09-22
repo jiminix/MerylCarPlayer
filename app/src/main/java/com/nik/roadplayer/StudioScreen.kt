@@ -96,7 +96,11 @@ private data class StudioMixSettings(
 
 @Composable
 fun StudioScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    scanEnabled: Boolean,
+    scanning: Boolean,
+    scanColor: Color,
+    onScan: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -282,13 +286,18 @@ fun StudioScreen(
         Color(0xFF5E7CFF)
     )
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF10171B))
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 7.dp, vertical = 6.dp)
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 7.dp, vertical = 6.dp)
+                .padding(bottom = 64.dp)
+        ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -569,7 +578,19 @@ fun StudioScreen(
             onBeatOriginChange = { beatOrigin = it }
         )
 
-        Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(10.dp))
+        }
+
+        StudioFloatingScanButton(
+            enabled = scanEnabled && recordingTrack == null && countdownTrack == null &&
+                !stoppingRecording && !exporting,
+            scanning = scanning,
+            color = scanColor,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 12.dp, bottom = 12.dp),
+            onClick = onScan
+        )
     }
 
     if (exportNameDialogOpen) {
@@ -628,6 +649,57 @@ fun StudioScreen(
         )
     }
 }
+
+@Composable
+private fun StudioFloatingScanButton(
+    enabled: Boolean,
+    scanning: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .size(56.dp)
+            .background(
+                if (enabled) color else Color(0xFF252C30),
+                CircleShape
+            )
+            .border(
+                width = 1.dp,
+                color = if (enabled) Color.White.copy(alpha = 0.25f) else Color(0xFF3D4549),
+                shape = CircleShape
+            )
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (scanning) {
+            Text(
+                text = "…",
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "↻",
+                    color = Color.White,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 22.sp
+                )
+                Text(
+                    text = "SCAN",
+                    color = Color.White,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun StudioPrimaryTrack(
