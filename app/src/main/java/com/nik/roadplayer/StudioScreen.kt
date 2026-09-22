@@ -76,6 +76,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -87,7 +88,8 @@ private const val WAV_HEADER_SIZE = 44
 private data class StudioMixSettings(
     val volumes: List<Float>,
     val muted: List<Boolean>,
-    val solo: List<Boolean>
+    val solo: List<Boolean>,
+    val looped: List<Boolean>
 )
 
 @Composable
@@ -101,6 +103,7 @@ fun StudioScreen(
     val volumes = remember { mutableStateListOf(1f, 1f, 1f) }
     val muted = remember { mutableStateListOf(false, false, false) }
     val solo = remember { mutableStateListOf(false, false, false) }
+    val looped = remember { mutableStateListOf(false, false, false) }
     val existing = remember { mutableStateListOf(false, false, false) }
     val durations = remember { mutableStateListOf(0L, 0L, 0L) }
     val peaks = remember {
@@ -122,6 +125,11 @@ fun StudioScreen(
     var pendingRecord by remember { mutableStateOf<Int?>(null) }
     var exportNameDialogOpen by remember { mutableStateOf(false) }
     var exportFileName by remember { mutableStateOf("") }
+    var tempoBpm by remember { mutableStateOf(120) }
+    var countdownTrack by remember { mutableStateOf<Int?>(null) }
+    var countdownBeat by remember { mutableStateOf(0) }
+    var countdownTempo by remember { mutableStateOf(120) }
+    var stoppingRecording by remember { mutableStateOf(false) }
 
     val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
     val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
@@ -135,7 +143,8 @@ fun StudioScreen(
     fun settings(): StudioMixSettings = StudioMixSettings(
         volumes = volumes.toList(),
         muted = muted.toList(),
-        solo = solo.toList()
+        solo = solo.toList(),
+        looped = looped.toList()
     )
 
     fun refreshTrack(index: Int) {
@@ -154,7 +163,7 @@ fun StudioScreen(
     }
 
     fun beginRecording(index: Int) {
-        if (recordingTrack != null) return
+        if (recordingTrack != null || stoppingRecording || exporting) return
         playing = false
         engine.stopPlayback()
         playheadMs = 0L
@@ -169,13 +178,23 @@ fun StudioScreen(
         recordingTrack = index
     }
 
+    fun beginCountdown(index: Int) {
+        if (recordingTrack != null || countdownTrack != null || stoppingRecording || exporting) return
+        engine.stopPlayback()
+        playing = false
+        countdownTempo = tempoBpm
+        countdownBeat = 3
+        countdownTrack = index
+    }
+
     fun requestRecord(index: Int) {
+        if (recordingTrack != null || countdownTrack != null || stoppingRecording || exporting) return
         if (ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            beginRecording(index)
+            beginCountdown(index)
         } else {
             pendingRecord = index
         }
@@ -187,7 +206,7 @@ fun StudioScreen(
         val track = pendingRecord
         pendingRecord = null
         if (granted && track != null) {
-            beginRecording(track)
+            beginCountdown(track)
         } else if (!granted) {
             Toast.makeText(context, "Autorise le micro pour enregistrer", Toast.LENGTH_LONG).show()
         }
@@ -204,6 +223,21 @@ fun StudioScreen(
 
     LaunchedEffect(Unit) {
         repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
+    }
+
+    // Three silent beats at tap tempo; capture starts immediately after the last beat.
+    LaunchedEffect(countdownTrack, countdownTempo) {
+        val target = countdownTrack ?: return@LaunchedEffect
+        val beatMs = 60_000L / countdownTempo.coerceIn(30, 300).toLong()
+        for (beat in 3 downTo 1) {
+            countdownBeat = beat
+            delay(beatMs)
+        }
+        if (countdownTrack == target) {
+            countdownTrack = null
+            countdownBeat = 0
+            beginRecording(target)
+        }
     }
 
     LaunchedEffect(playing, playbackDuration, playbackStartOffset, playbackStartedAt) {
@@ -257,7 +291,7 @@ fun StudioScreen(
         ) {
             StudioSquareButton(
                 text = "‹",
-                enabled = recordingTrack == null && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
                 onClick = {
                     engine.stopAll()
                     onBack()
@@ -275,13 +309,13 @@ fun StudioScreen(
                     .width(72.dp)
                     .height(32.dp)
                     .background(
-                        if (recordingTrack == null && !exporting && existing.any { it })
+                        if (recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing.any { it })
                             Color(0xFF7E2020)
                         else Color(0xFF322428),
                         RoundedCornerShape(8.dp)
                     )
                     .clickable(
-                        enabled = recordingTrack == null && !exporting && existing.any { it }
+                        enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing.any { it }
                     ) {
                         engine.stopPlayback()
                         playing = false
@@ -293,6 +327,7 @@ fun StudioScreen(
                             volumes[index] = 1f
                             muted[index] = false
                             solo[index] = false
+                            looped[index] = false
                         }
                         playheadMs = 0L
                         Toast.makeText(
@@ -315,6 +350,24 @@ fun StudioScreen(
 
         Spacer(Modifier.height(6.dp))
 
+        if (countdownTrack != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .background(Color(0xFF4F2633), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "PISTE ${countdownTrack!! + 1}  ·  DÉPART DANS  $countdownBeat",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+
         StudioPrimaryTrack(
             hasAudio = existing[0],
             durationMs = durations[0],
@@ -323,7 +376,8 @@ fun StudioScreen(
             muted = muted[0],
             solo = solo[0],
             recording = recordingTrack == 0,
-            controlsEnabled = recordingTrack == null && !exporting,
+            countdownBeat = if (countdownTrack == 0) countdownBeat else 0,
+            controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
             timelineProgress = timelineProgress,
             timelineDurationMs = timelineDuration,
             playheadMs = playheadMs,
@@ -354,7 +408,7 @@ fun StudioScreen(
         ) {
             StudioTransportButton(
                 text = "⏮ DÉBUT",
-                enabled = recordingTrack == null && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
                 modifier = Modifier.width(72.dp)
             ) {
                 engine.stopPlayback()
@@ -368,7 +422,7 @@ fun StudioScreen(
 
             StudioTransportButton(
                 text = if (playing) "■" else "▶",
-                enabled = recordingTrack == null && existing.any { it } && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF208457),
                 modifier = Modifier.width(70.dp)
             ) {
@@ -395,11 +449,15 @@ fun StudioScreen(
 
             StudioTransportButton(
                 text = "■ STOP",
-                enabled = recordingTrack != null || playing,
+                enabled = countdownTrack != null || (recordingTrack != null && !stoppingRecording) || playing,
                 activeColor = Color(0xFFB33E44),
                 modifier = Modifier.width(78.dp)
             ) {
-                if (recordingTrack != null) {
+                if (countdownTrack != null) {
+                    countdownTrack = null
+                    countdownBeat = 0
+                } else if (recordingTrack != null && !stoppingRecording) {
+                    stoppingRecording = true
                     val stoppedTrack = recordingTrack
                     scope.launch {
                         withContext(Dispatchers.IO) {
@@ -407,6 +465,7 @@ fun StudioScreen(
                         }
                         recordingTrack = null
                         recordingStartedAt = 0L
+                        stoppingRecording = false
                         stoppedTrack?.let { refreshTrack(it) }
                     }
                 } else {
@@ -419,7 +478,7 @@ fun StudioScreen(
 
             StudioTransportButton(
                 text = if (exporting) "MIX..." else "EXPORT",
-                enabled = recordingTrack == null && existing.any { it } && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF3268AF),
                 modifier = Modifier.width(78.dp)
             ) {
@@ -447,12 +506,15 @@ fun StudioScreen(
                 muted = muted[1],
                 solo = solo[1],
                 recording = recordingTrack == 1,
-                controlsEnabled = recordingTrack == null && !exporting,
+                countdownBeat = if (countdownTrack == 1) countdownBeat else 0,
+                looped = looped[1],
+                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
                 modifier = Modifier.weight(1f),
                 onVolume = { volumes[1] = it },
                 onMute = { muted[1] = !muted[1] },
                 onSolo = { solo[1] = !solo[1] },
                 onRecord = { requestRecord(1) },
+                onLoop = { looped[1] = !looped[1] },
                 onClear = {
                     engine.deleteTrack(1)
                     existing[1] = false
@@ -469,12 +531,15 @@ fun StudioScreen(
                 muted = muted[2],
                 solo = solo[2],
                 recording = recordingTrack == 2,
-                controlsEnabled = recordingTrack == null && !exporting,
+                countdownBeat = if (countdownTrack == 2) countdownBeat else 0,
+                looped = looped[2],
+                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
                 modifier = Modifier.weight(1f),
                 onVolume = { volumes[2] = it },
                 onMute = { muted[2] = !muted[2] },
                 onSolo = { solo[2] = !solo[2] },
                 onRecord = { requestRecord(2) },
+                onLoop = { looped[2] = !looped[2] },
                 onClear = {
                     engine.deleteTrack(2)
                     existing[2] = false
@@ -485,7 +550,11 @@ fun StudioScreen(
 
         Spacer(Modifier.height(7.dp))
 
-        StudioLightMetronome(modifier = Modifier.fillMaxWidth())
+        StudioLightMetronome(
+            modifier = Modifier.fillMaxWidth(),
+            bpm = tempoBpm,
+            onBpmChange = { tempoBpm = it }
+        )
 
         Spacer(Modifier.height(10.dp))
     }
@@ -556,6 +625,7 @@ private fun StudioPrimaryTrack(
     muted: Boolean,
     solo: Boolean,
     recording: Boolean,
+    countdownBeat: Int,
     controlsEnabled: Boolean,
     timelineProgress: Float,
     timelineDurationMs: Long,
@@ -590,9 +660,9 @@ private fun StudioPrimaryTrack(
                 modifier = Modifier.padding(end = 8.dp)
             )
             StudioMiniButton(
-                text = if (recording) "●" else "REC",
-                active = recording,
-                enabled = controlsEnabled || recording,
+                text = if (countdownBeat > 0) countdownBeat.toString() else if (recording) "●" else "REC",
+                active = recording || countdownBeat > 0,
+                enabled = controlsEnabled || recording || countdownBeat > 0,
                 activeColor = Color(0xFFB82020),
                 onClick = onRecord
             )
@@ -696,12 +766,15 @@ private fun CompactStudioTrack(
     muted: Boolean,
     solo: Boolean,
     recording: Boolean,
+    countdownBeat: Int,
+    looped: Boolean,
     controlsEnabled: Boolean,
     modifier: Modifier = Modifier,
     onVolume: (Float) -> Unit,
     onMute: () -> Unit,
     onSolo: () -> Unit,
     onRecord: () -> Unit,
+    onLoop: () -> Unit,
     onClear: () -> Unit
 ) {
     Column(
@@ -713,14 +786,23 @@ private fun CompactStudioTrack(
             )
             .padding(horizontal = 7.dp, vertical = 7.dp)
     ) {
-        Text(
-            text = "PISTE " + (index + 1),
-            color = if (recording) Color(0xFFFF6464) else Color.White,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.ExtraBold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "PISTE " + (index + 1),
+                color = if (recording) Color(0xFFFF6464) else Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f)
+            )
+            StudioMiniButton(
+                text = "↻",
+                active = looped,
+                enabled = controlsEnabled && hasAudio,
+                activeColor = Color(0xFF237E66),
+                onClick = onLoop
+            )
+        }
 
         Spacer(Modifier.height(5.dp))
 
@@ -729,9 +811,9 @@ private fun CompactStudioTrack(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             StudioMiniButton(
-                text = if (recording) "●" else "REC",
-                active = recording,
-                enabled = controlsEnabled || recording,
+                text = if (countdownBeat > 0) countdownBeat.toString() else if (recording) "●" else "REC",
+                active = recording || countdownBeat > 0,
+                enabled = controlsEnabled || recording || countdownBeat > 0,
                 activeColor = Color(0xFFB82020),
                 onClick = onRecord
             )
@@ -836,8 +918,11 @@ private fun CompactStudioTrack(
  * Timing uses elapsedRealtime so wall-clock changes do not affect the beat.
  */
 @Composable
-private fun StudioLightMetronome(modifier: Modifier = Modifier) {
-    var bpm by remember { mutableStateOf(120) }
+private fun StudioLightMetronome(
+    modifier: Modifier = Modifier,
+    bpm: Int,
+    onBpmChange: (Int) -> Unit
+) {
     var running by remember { mutableStateOf(true) }
     var lightOn by remember { mutableStateOf(false) }
     var beatOrigin by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
@@ -889,7 +974,7 @@ private fun StudioLightMetronome(modifier: Modifier = Modifier) {
                     if (taps.size >= 2) {
                         val meanInterval = (taps.last() - taps.first()).toDouble() /
                             (taps.size - 1)
-                        bpm = (60_000.0 / meanInterval).roundToInt().coerceIn(30, 300)
+                        onBpmChange((60_000.0 / meanInterval).roundToInt().coerceIn(30, 300))
                     }
                     beatOrigin = now
                     running = true
@@ -1053,7 +1138,7 @@ private fun formatStudioDuration(ms: Long): String {
 private class MerylStudioEngine(private val context: Context) {
     private val projectDir = File(context.filesDir, "meryl_studio/current_project").apply { mkdirs() }
     private val recording = AtomicBoolean(false)
-    private val playbackStop = AtomicBoolean(false)
+    private val playbackGeneration = AtomicInteger(0)
     private var currentRecorder: AudioRecord? = null
     private var recordThread: Thread? = null
     private val playbackThreads = CopyOnWriteArrayList<Thread>()
@@ -1203,13 +1288,19 @@ private class MerylStudioEngine(private val context: Context) {
         val offset = startOffsetMs.coerceIn(0L, maxDuration)
         if (offset >= maxDuration) return 0L
 
-        playbackStop.set(false)
+        val generation = playbackGeneration.get()
 
         selected.forEach { index ->
             val file = trackFile(index)
             val volume = settings.volumes.getOrElse(index) { 1f }.coerceIn(0f, 1f)
             val thread = Thread {
-                streamWavFile(file, volume, offset)
+                streamWavFile(
+                    file,
+                    volume,
+                    offset,
+                    looped = index > 0 && settings.looped.getOrElse(index) { false },
+                    generation = generation
+                )
             }
             thread.name = "MerylStudioPlay-" + (index + 1)
             playbackThreads.add(thread)
@@ -1220,7 +1311,7 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     fun stopPlayback() {
-        playbackStop.set(true)
+        playbackGeneration.incrementAndGet()
         playbackThreads.forEach { thread ->
             runCatching { thread.interrupt() }
         }
@@ -1265,6 +1356,8 @@ private class MerylStudioEngine(private val context: Context) {
             skipFully(input, WAV_HEADER_SIZE.toLong())
             MixSource(
                 input = input,
+                file = trackFile(index),
+                looped = index > 0 && settings.looped.getOrElse(index) { false },
                 volume = settings.volumes.getOrElse(index) { 1f }.coerceIn(0f, 1f)
             )
         }
@@ -1280,7 +1373,7 @@ private class MerylStudioEngine(private val context: Context) {
                 while (processed < maxSamples) {
                     val count = minOf(blockSamples.toLong(), maxSamples - processed).toInt()
                     sources.forEachIndexed { i, source ->
-                        readSamples(source.input, sourceBuffers[i], count)
+                        readSamples(source, sourceBuffers[i], count)
                     }
 
                     var byteIndex = 0
@@ -1379,7 +1472,13 @@ private class MerylStudioEngine(private val context: Context) {
         }
     }
 
-    private fun streamWavFile(file: File, volume: Float, startOffsetMs: Long) {
+    private fun streamWavFile(
+        file: File,
+        volume: Float,
+        startOffsetMs: Long,
+        looped: Boolean,
+        generation: Int
+    ) {
         if (!file.isFile || file.length() <= WAV_HEADER_SIZE) return
         val minBuffer = AudioTrack.getMinBufferSize(
             STUDIO_SAMPLE_RATE,
@@ -1412,19 +1511,28 @@ private class MerylStudioEngine(private val context: Context) {
         try {
             player.setVolume(volume)
             player.play()
-            BufferedInputStream(FileInputStream(file)).use { input ->
-                val dataBytes = (file.length() - WAV_HEADER_SIZE).coerceAtLeast(0L)
-                val requestedOffsetBytes =
-                    (startOffsetMs.coerceAtLeast(0L) * STUDIO_SAMPLE_RATE.toLong() / 1000L) * 2L
-                val offsetBytes = requestedOffsetBytes.coerceAtMost(dataBytes)
-                skipFully(input, WAV_HEADER_SIZE.toLong() + offsetBytes)
-                val buffer = ByteArray(minBuffer)
-                while (!playbackStop.get() && !Thread.currentThread().isInterrupted) {
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    player.write(buffer, 0, read)
+            val dataBytes = (file.length() - WAV_HEADER_SIZE).coerceAtLeast(0L)
+            val requestedOffsetBytes =
+                (startOffsetMs.coerceAtLeast(0L) * STUDIO_SAMPLE_RATE.toLong() / 1000L) * 2L
+            var firstPass = true
+            val buffer = ByteArray(minBuffer)
+            do {
+                BufferedInputStream(FileInputStream(file)).use { input ->
+                    val offsetBytes = if (firstPass) requestedOffsetBytes.coerceAtMost(dataBytes) else 0L
+                    skipFully(input, WAV_HEADER_SIZE.toLong() + offsetBytes)
+                    while (playbackGeneration.get() == generation &&
+                        !Thread.currentThread().isInterrupted
+                    ) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        player.write(buffer, 0, read)
+                    }
                 }
-            }
+                firstPass = false
+            } while (looped && dataBytes > 0L &&
+                playbackGeneration.get() == generation &&
+                !Thread.currentThread().isInterrupted
+            )
         } catch (_: Throwable) {
         } finally {
             runCatching { player.stop() }
@@ -1478,7 +1586,7 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     private fun readSamples(
-        input: BufferedInputStream,
+        source: MixSource,
         destination: ShortArray,
         requested: Int
     ) {
@@ -1487,8 +1595,14 @@ private class MerylStudioEngine(private val context: Context) {
         val bytes = ByteArray(bytesNeeded)
         var total = 0
         while (total < bytesNeeded) {
-            val read = input.read(bytes, total, bytesNeeded - total)
-            if (read <= 0) break
+            val read = source.input.read(bytes, total, bytesNeeded - total)
+            if (read <= 0) {
+                if (!source.looped || source.file.length() <= WAV_HEADER_SIZE + 1L) break
+                source.input.close()
+                source.input = BufferedInputStream(FileInputStream(source.file))
+                skipFully(source.input, WAV_HEADER_SIZE.toLong())
+                continue
+            }
             total += read
         }
         var b = 0
@@ -1517,7 +1631,9 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     private data class MixSource(
-        val input: BufferedInputStream,
+        var input: BufferedInputStream,
+        val file: File,
+        val looped: Boolean,
         val volume: Float
     )
 }

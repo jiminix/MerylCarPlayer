@@ -1,0 +1,6 @@
+V0.91 — Mini Studio
+- Bouton boucle ↻ indépendant sur pistes 2 et 3 : lorsque activé, leur lecture reprend au début à la fin du fichier, y compris pendant un nouvel enregistrement sur la piste 1.
+- La piste 1 enregistre sans limite liée à la durée des pistes d'accompagnement ; son audio n'est jamais mis en boucle.
+- À l'export, les pistes 2 et 3 en boucle sont répétées pendant la durée du mix.
+- Compte à rebours visuel de trois temps avant chaque nouvel enregistrement, à la cadence actuelle du tap tempo (BPM). STOP annule le départ.
+- Les trois temps sont silencieux et ne figurent pas dans le fichier enregistré.
