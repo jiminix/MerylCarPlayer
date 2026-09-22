@@ -245,7 +245,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V0.92")
+                PlayerHeader(version = "V0.93")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -557,7 +557,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V0.92")
+            PlayerHeader(version = "V0.93")
 
         if (studioOpen) {
             StudioScreen(onBack = { studioOpen = false })
@@ -667,8 +667,8 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                     RefreshLibraryButton(
                         enabled = !loading && !refreshing && permissionGranted,
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 16.dp, bottom = 16.dp),
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 10.dp, bottom = 10.dp),
                         onClick = {
                             coroutineScope.launch {
                                 refreshing = true
@@ -2174,7 +2174,7 @@ private fun AlbumGrid(
                 start = 6.dp,
                 end = 6.dp,
                 top = 34.dp,
-                bottom = 5.dp
+                bottom = 82.dp
             ),
             horizontalArrangement = Arrangement.spacedBy(spacing),
             verticalArrangement = Arrangement.spacedBy(spacing)
@@ -2286,7 +2286,7 @@ private fun AlbumGrid(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 48.dp, bottom = 10.dp),
+                .padding(end = 72.dp, bottom = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -2323,8 +2323,8 @@ private fun AlbumGrid(
         if (groupMode == "artist" && expandedArtist == null) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 5.dp)
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 112.dp, bottom = 10.dp)
                     .size(width = 42.dp, height = 66.dp)
                     .clip(RoundedCornerShape(13.dp))
                     .background(Color(0xE61A1A1A))
