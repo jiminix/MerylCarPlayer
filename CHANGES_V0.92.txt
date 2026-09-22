@@ -1,0 +1,8 @@
+V0.92 — Boucles calées sur le tempo
+- Les pistes 2 et 3 avec ↻ activé ont maintenant une longueur de boucle arrondie au temps entier le plus proche du BPM affiché lors de la lecture ou de l'export.
+- Les boucles utilisent une durée en échantillons audio exacte, sans retard supplémentaire à chaque redémarrage : elles restent sur la même grille de tempo au fil des répétitions.
+- Si le clip dépasse la fin du dernier temps quantifié, la fin est tronquée ; s'il est plus court, un court silence le complète. La vitesse et la hauteur du son ne changent pas.
+- L'enregistrement de la piste 1 reste indépendant ; le mix exporté applique la même quantification aux pistes en boucle.
+- Le décompte 3–2–1 et la lumière du métronome partagent le même repère temporel au lancement ; le BPM est verrouillé pendant le décompte, l'enregistrement et la lecture.
+- Les pistes enregistrées auparavant ne sont pas modifiées sur disque : la quantification ne s'applique que lorsque le bouton ↻ est activé.
+- L'appareil Android peut néanmoins ajouter une latence audio fixe entre capture, haut-parleurs et affichage : ce n'est pas une synchronisation professionnelle à l'échantillon près.

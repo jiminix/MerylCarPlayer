@@ -71,6 +71,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import kotlin.math.roundToLong
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -89,7 +90,8 @@ private data class StudioMixSettings(
     val volumes: List<Float>,
     val muted: List<Boolean>,
     val solo: List<Boolean>,
-    val looped: List<Boolean>
+    val looped: List<Boolean>,
+    val bpm: Int
 )
 
 @Composable
@@ -126,6 +128,7 @@ fun StudioScreen(
     var exportNameDialogOpen by remember { mutableStateOf(false) }
     var exportFileName by remember { mutableStateOf("") }
     var tempoBpm by remember { mutableStateOf(120) }
+    var beatOrigin by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
     var countdownTrack by remember { mutableStateOf<Int?>(null) }
     var countdownBeat by remember { mutableStateOf(0) }
     var countdownTempo by remember { mutableStateOf(120) }
@@ -144,7 +147,8 @@ fun StudioScreen(
         volumes = volumes.toList(),
         muted = muted.toList(),
         solo = solo.toList(),
-        looped = looped.toList()
+        looped = looped.toList(),
+        bpm = tempoBpm
     )
 
     fun refreshTrack(index: Int) {
@@ -169,6 +173,7 @@ fun StudioScreen(
         playheadMs = 0L
         playbackStartOffset = 0L
         recordingStartedAt = SystemClock.elapsedRealtime()
+        beatOrigin = recordingStartedAt
         val started = engine.startRecording(index, settings())
         if (!started) {
             recordingStartedAt = 0L
@@ -183,6 +188,7 @@ fun StudioScreen(
         engine.stopPlayback()
         playing = false
         countdownTempo = tempoBpm
+        beatOrigin = SystemClock.elapsedRealtime()
         countdownBeat = 3
         countdownTrack = index
     }
@@ -228,10 +234,12 @@ fun StudioScreen(
     // Three silent beats at tap tempo; capture starts immediately after the last beat.
     LaunchedEffect(countdownTrack, countdownTempo) {
         val target = countdownTrack ?: return@LaunchedEffect
-        val beatMs = 60_000L / countdownTempo.coerceIn(30, 300).toLong()
+        val period = 60_000.0 / countdownTempo.coerceIn(30, 300).toDouble()
+        val origin = beatOrigin
         for (beat in 3 downTo 1) {
             countdownBeat = beat
-            delay(beatMs)
+            val nextBoundary = origin + ((4 - beat) * period).roundToLong()
+            delay((nextBoundary - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
         }
         if (countdownTrack == target) {
             countdownTrack = null
@@ -439,6 +447,7 @@ fun StudioScreen(
                         playbackStartOffset = startAt
                         playbackDuration = duration
                         playbackStartedAt = SystemClock.elapsedRealtime()
+                        beatOrigin = playbackStartedAt
                         playheadMs = startAt
                         playing = true
                     }
@@ -553,7 +562,11 @@ fun StudioScreen(
         StudioLightMetronome(
             modifier = Modifier.fillMaxWidth(),
             bpm = tempoBpm,
-            onBpmChange = { tempoBpm = it }
+            beatOrigin = beatOrigin,
+            tempoLocked = countdownTrack != null || recordingTrack != null ||
+                stoppingRecording || playing || exporting,
+            onBpmChange = { tempoBpm = it },
+            onBeatOriginChange = { beatOrigin = it }
         )
 
         Spacer(Modifier.height(10.dp))
@@ -921,11 +934,13 @@ private fun CompactStudioTrack(
 private fun StudioLightMetronome(
     modifier: Modifier = Modifier,
     bpm: Int,
-    onBpmChange: (Int) -> Unit
+    beatOrigin: Long,
+    tempoLocked: Boolean,
+    onBpmChange: (Int) -> Unit,
+    onBeatOriginChange: (Long) -> Unit
 ) {
     var running by remember { mutableStateOf(true) }
     var lightOn by remember { mutableStateOf(false) }
-    var beatOrigin by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
     val taps = remember { mutableListOf<Long>() }
 
     LaunchedEffect(bpm, running, beatOrigin) {
@@ -934,10 +949,13 @@ private fun StudioLightMetronome(
             return@LaunchedEffect
         }
         while (true) {
-            lightOn = true
-            delay(115L)
-            lightOn = false
-            delay((60_000L / bpm.toLong() - 115L).coerceAtLeast(35L))
+            val periodMs = 60_000.0 / bpm.coerceIn(30, 300).toDouble()
+            val elapsed = (SystemClock.elapsedRealtime() - beatOrigin).coerceAtLeast(0L)
+            val phase = elapsed.toDouble() % periodMs
+            val flashMs = minOf(115.0, periodMs * 0.4)
+            lightOn = phase < flashMs
+            val toNext = if (lightOn) flashMs - phase else periodMs - phase
+            delay(toNext.roundToLong().coerceAtLeast(1L))
         }
     }
 
@@ -964,7 +982,7 @@ private fun StudioLightMetronome(
                     CircleShape
                 )
                 .border(2.dp, Color(0xFF79E6BD), CircleShape)
-                .clickable {
+                .clickable(enabled = !tempoLocked) {
                     val now = SystemClock.elapsedRealtime()
                     val interval = if (taps.isEmpty()) Long.MAX_VALUE else now - taps.last()
                     // A pause or an accidental double-tap starts a fresh measurement.
@@ -976,7 +994,7 @@ private fun StudioLightMetronome(
                             (taps.size - 1)
                         onBpmChange((60_000.0 / meanInterval).roundToInt().coerceIn(30, 300))
                     }
-                    beatOrigin = now
+                    onBeatOriginChange(now)
                     running = true
                     lightOn = true
                 },
@@ -998,7 +1016,7 @@ private fun StudioLightMetronome(
         ) {
             running = !running
             taps.clear()
-            if (running) beatOrigin = SystemClock.elapsedRealtime()
+            if (running) onBeatOriginChange(SystemClock.elapsedRealtime())
         }
     }
 }
@@ -1284,7 +1302,14 @@ private class MerylStudioEngine(private val context: Context) {
         val selected = selectedTrackIndexes(settings, excludeTrack)
         if (selected.isEmpty()) return 0L
 
-        val maxDuration = selected.maxOfOrNull { trackDurationMs(it) } ?: 0L
+        val maxDuration = selected.maxOfOrNull { index ->
+            val totalFrames = StudioPcmSource.cycleSamples(
+                trackFile(index),
+                looped = index > 0 && settings.looped.getOrElse(index) { false },
+                bpm = settings.bpm
+            )
+            totalFrames * 1000L / STUDIO_SAMPLE_RATE
+        } ?: 0L
         val offset = startOffsetMs.coerceIn(0L, maxDuration)
         if (offset >= maxDuration) return 0L
 
@@ -1299,6 +1324,7 @@ private class MerylStudioEngine(private val context: Context) {
                     volume,
                     offset,
                     looped = index > 0 && settings.looped.getOrElse(index) { false },
+                    bpm = settings.bpm,
                     generation = generation
                 )
             }
@@ -1346,18 +1372,23 @@ private class MerylStudioEngine(private val context: Context) {
         if (selected.isEmpty()) return null
 
         val maxSamples = selected.maxOfOrNull { index ->
-            ((trackFile(index).length() - WAV_HEADER_SIZE).coerceAtLeast(0L) / 2L)
+            StudioPcmSource.cycleSamples(
+                trackFile(index),
+                looped = index > 0 && settings.looped.getOrElse(index) { false },
+                bpm = settings.bpm
+            )
         } ?: return null
         if (maxSamples <= 0L) return null
 
         val tempMix = File(projectDir, "mix_export.tmp.wav")
         val sources = selected.map { index ->
-            val input = BufferedInputStream(FileInputStream(trackFile(index)))
-            skipFully(input, WAV_HEADER_SIZE.toLong())
             MixSource(
-                input = input,
-                file = trackFile(index),
-                looped = index > 0 && settings.looped.getOrElse(index) { false },
+                audio = StudioPcmSource(
+                    file = trackFile(index),
+                    looped = index > 0 && settings.looped.getOrElse(index) { false },
+                    bpm = settings.bpm,
+                    startSample = 0L
+                ),
                 volume = settings.volumes.getOrElse(index) { 1f }.coerceIn(0f, 1f)
             )
         }
@@ -1394,7 +1425,7 @@ private class MerylStudioEngine(private val context: Context) {
             runCatching { tempMix.delete() }
             return null
         } finally {
-            sources.forEach { runCatching { it.input.close() } }
+            sources.forEach { runCatching { it.audio.close() } }
         }
 
         val cleanedBase = requestedName
@@ -1477,9 +1508,10 @@ private class MerylStudioEngine(private val context: Context) {
         volume: Float,
         startOffsetMs: Long,
         looped: Boolean,
+        bpm: Int,
         generation: Int
     ) {
-        if (!file.isFile || file.length() <= WAV_HEADER_SIZE) return
+        if (!file.isFile || file.length() <= WAV_HEADER_SIZE + 1L) return
         val minBuffer = AudioTrack.getMinBufferSize(
             STUDIO_SAMPLE_RATE,
             AudioFormat.CHANNEL_OUT_MONO,
@@ -1509,30 +1541,29 @@ private class MerylStudioEngine(private val context: Context) {
         }
 
         try {
-            player.setVolume(volume)
-            player.play()
-            val dataBytes = (file.length() - WAV_HEADER_SIZE).coerceAtLeast(0L)
-            val requestedOffsetBytes =
-                (startOffsetMs.coerceAtLeast(0L) * STUDIO_SAMPLE_RATE.toLong() / 1000L) * 2L
-            var firstPass = true
-            val buffer = ByteArray(minBuffer)
-            do {
-                BufferedInputStream(FileInputStream(file)).use { input ->
-                    val offsetBytes = if (firstPass) requestedOffsetBytes.coerceAtMost(dataBytes) else 0L
-                    skipFully(input, WAV_HEADER_SIZE.toLong() + offsetBytes)
-                    while (playbackGeneration.get() == generation &&
+            val startSample = startOffsetMs.coerceAtLeast(0L) *
+                STUDIO_SAMPLE_RATE.toLong() / 1000L
+            StudioPcmSource(file, looped, bpm, startSample).use { audio ->
+                player.setVolume(volume)
+                player.play()
+                val buffer = ByteArray(4096 * 2)
+                while (playbackGeneration.get() == generation &&
+                    !Thread.currentThread().isInterrupted
+                ) {
+                    val count = audio.readBytes(buffer, 0, buffer.size)
+                    if (count <= 0) break
+                    var written = 0
+                    while (written < count &&
+                        playbackGeneration.get() == generation &&
                         !Thread.currentThread().isInterrupted
                     ) {
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        player.write(buffer, 0, read)
+                        val n = player.write(buffer, written, count - written)
+                        if (n <= 0) break
+                        written += n
                     }
+                    if (written < count) break
                 }
-                firstPass = false
-            } while (looped && dataBytes > 0L &&
-                playbackGeneration.get() == generation &&
-                !Thread.currentThread().isInterrupted
-            )
+            }
         } catch (_: Throwable) {
         } finally {
             runCatching { player.stop() }
@@ -1591,27 +1622,15 @@ private class MerylStudioEngine(private val context: Context) {
         requested: Int
     ) {
         java.util.Arrays.fill(destination, 0.toShort())
-        val bytesNeeded = requested * 2
-        val bytes = ByteArray(bytesNeeded)
-        var total = 0
-        while (total < bytesNeeded) {
-            val read = source.input.read(bytes, total, bytesNeeded - total)
-            if (read <= 0) {
-                if (!source.looped || source.file.length() <= WAV_HEADER_SIZE + 1L) break
-                source.input.close()
-                source.input = BufferedInputStream(FileInputStream(source.file))
-                skipFully(source.input, WAV_HEADER_SIZE.toLong())
-                continue
-            }
-            total += read
-        }
-        var b = 0
+        val bytes = ByteArray(requested * 2)
+        val total = source.audio.readBytes(bytes, 0, bytes.size)
+        var offset = 0
         var sample = 0
-        while (b + 1 < total && sample < requested) {
-            val lo = bytes[b].toInt() and 0xFF
-            val hi = bytes[b + 1].toInt()
+        while (offset + 1 < total && sample < requested) {
+            val lo = bytes[offset].toInt() and 0xFF
+            val hi = bytes[offset + 1].toInt()
             destination[sample] = ((hi shl 8) or lo).toShort()
-            b += 2
+            offset += 2
             sample++
         }
     }
@@ -1631,9 +1650,114 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     private data class MixSource(
-        var input: BufferedInputStream,
-        val file: File,
-        val looped: Boolean,
+        val audio: StudioPcmSource,
         val volume: Float
     )
+}
+
+/**
+ * PCM reader shared by playback and WAV mixdown.
+ * Loop boundaries are quantized to whole beats in PCM samples (not timed using
+ * repeated Android thread delays), so successive repetitions do not accumulate
+ * scheduling drift. Audio past the chosen beat is trimmed; a short ending is
+ * zero-padded until that beat. No time-stretching or pitch shifting is applied.
+ */
+private class StudioPcmSource(
+    private val file: File,
+    private val looped: Boolean,
+    bpm: Int,
+    startSample: Long
+) : java.io.Closeable {
+    companion object {
+        fun cycleSamples(file: File, looped: Boolean, bpm: Int): Long {
+            val samples = ((file.length() - WAV_HEADER_SIZE).coerceAtLeast(0L) / 2L)
+            if (!looped || samples <= 0L) return samples
+            val perBeat = (STUDIO_SAMPLE_RATE * 60.0 / bpm.coerceIn(30, 300))
+                .roundToLong().coerceAtLeast(1L)
+            val beats = (samples.toDouble() / perBeat.toDouble())
+                .roundToLong().coerceAtLeast(1L)
+            return beats * perBeat
+        }
+    }
+
+    private val fileSamples = ((file.length() - WAV_HEADER_SIZE).coerceAtLeast(0L) / 2L)
+    private val cycle = cycleSamples(file, looped, bpm)
+    private var position = if (looped && cycle > 0L) startSample % cycle
+        else startSample.coerceIn(0L, cycle)
+    private var input: BufferedInputStream? = null
+
+    init {
+        openAt(position)
+    }
+
+    private fun openAt(sample: Long) {
+        input?.close()
+        input = BufferedInputStream(FileInputStream(file))
+        skipFully(input!!, WAV_HEADER_SIZE.toLong() +
+            sample.coerceAtMost(fileSamples) * 2L)
+    }
+
+    fun readBytes(destination: ByteArray, offset: Int, length: Int): Int {
+        require(length % 2 == 0 && offset >= 0 &&
+            length >= 0 && offset + length <= destination.size)
+        var written = 0
+        while (written < length) {
+            if (position >= cycle) {
+                if (!looped || cycle <= 0L) break
+                position = 0L
+                openAt(0L)
+            }
+            val frames = minOf(((length - written) / 2).toLong(), cycle - position)
+                .toInt()
+            if (frames <= 0) break
+            val byteCount = frames * 2
+            if (position >= fileSamples) {
+                java.util.Arrays.fill(
+                    destination, offset + written,
+                    offset + written + byteCount, 0.toByte()
+                )
+                position += frames
+                written += byteCount
+                continue
+            }
+
+            val audioFrames = minOf(frames.toLong(), fileSamples - position).toInt()
+            val expected = audioFrames * 2
+            var obtained = 0
+            while (obtained < expected) {
+                val n = input!!.read(
+                    destination,
+                    offset + written + obtained,
+                    expected - obtained
+                )
+                if (n <= 0) break
+                obtained += n
+            }
+            if (obtained < expected) {
+                java.util.Arrays.fill(
+                    destination, offset + written + obtained,
+                    offset + written + expected, 0.toByte()
+                )
+            }
+            position += audioFrames
+            written += expected
+        }
+        return written
+    }
+
+    override fun close() {
+        input?.close()
+        input = null
+    }
+
+    // Avoid holding an engine instance merely to seek a WAV data stream.
+    private fun skipFully(stream: BufferedInputStream, bytes: Long) {
+        var remaining = bytes
+        while (remaining > 0L) {
+            val skipped = stream.skip(remaining)
+            if (skipped > 0L) remaining -= skipped
+            else if (stream.read() >= 0) remaining--
+            else break
+        }
+    }
 }
