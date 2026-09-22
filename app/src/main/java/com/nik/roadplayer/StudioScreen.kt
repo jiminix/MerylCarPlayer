@@ -568,7 +568,7 @@ private fun StudioPrimaryTrack(
         modifier = Modifier
             .fillMaxWidth()
             .border(2.dp, Color(0xFFFFDE59), RoundedCornerShape(16.dp))
-            .background(Color(0xFF1A2329), RoundedCornerShape(16.dp))
+            .background(Color(0xFF5F4A1B), RoundedCornerShape(16.dp))
             .padding(horizontal = 10.dp, vertical = 9.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -704,7 +704,10 @@ private fun CompactStudioTrack(
     Column(
         modifier = modifier
             .border(2.dp, borderColor, RoundedCornerShape(16.dp))
-            .background(Color(0xFF1A2329), RoundedCornerShape(16.dp))
+            .background(
+                if (index == 1) Color(0xFF61361F) else Color(0xFF2A3F79),
+                RoundedCornerShape(16.dp)
+            )
             .padding(horizontal = 7.dp, vertical = 7.dp)
     ) {
         Text(
@@ -853,7 +856,7 @@ private fun StudioLightMetronome(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .border(2.dp, Color(0xFF79E6BD), RoundedCornerShape(16.dp))
-            .background(Color(0xFF1A2329), RoundedCornerShape(16.dp))
+            .background(Color(0xFF215444), RoundedCornerShape(16.dp))
             .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
