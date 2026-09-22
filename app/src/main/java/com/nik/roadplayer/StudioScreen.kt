@@ -592,7 +592,7 @@ fun StudioScreen(
             color = scanColor,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 12.dp),
+                .padding(end = 12.dp, bottom = 68.dp),
             onClick = onScan
         )
     }
