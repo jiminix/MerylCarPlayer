@@ -137,7 +137,6 @@ fun StudioScreen(
     var countdownBeat by remember { mutableStateOf(0) }
     var countdownTempo by remember { mutableStateOf(120) }
     var stoppingRecording by remember { mutableStateOf(false) }
-    var micGain by remember { mutableStateOf(1f) }
 
     val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
     val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
@@ -182,7 +181,7 @@ fun StudioScreen(
         val started = engine.startRecording(
             index = index,
             settings = settings(),
-            inputGain = if (index == 0) micGain else 1f
+            inputGain = if (index == 0) 4f else 1f
         )
         if (!started) {
             recordingStartedAt = 0L
@@ -399,7 +398,6 @@ fun StudioScreen(
             solo = solo[0],
             recording = recordingTrack == 0,
             countdownBeat = if (countdownTrack == 0) countdownBeat else 0,
-            micGain = micGain,
             controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
             timelineProgress = timelineProgress,
             timelineDurationMs = timelineDuration,
@@ -412,13 +410,6 @@ fun StudioScreen(
             onVolume = { volumes[0] = it },
             onMute = { muted[0] = !muted[0] },
             onSolo = { solo[0] = !solo[0] },
-            onMicGain = {
-                micGain = when (micGain) {
-                    1f -> 2f
-                    2f -> 4f
-                    else -> 1f
-                }
-            },
             onRecord = { requestRecord(0) },
             onClear = {
                 engine.deleteTrack(0)
@@ -724,7 +715,6 @@ private fun StudioPrimaryTrack(
     solo: Boolean,
     recording: Boolean,
     countdownBeat: Int,
-    micGain: Float,
     controlsEnabled: Boolean,
     timelineProgress: Float,
     timelineDurationMs: Long,
@@ -733,7 +723,6 @@ private fun StudioPrimaryTrack(
     onVolume: (Float) -> Unit,
     onMute: () -> Unit,
     onSolo: () -> Unit,
-    onMicGain: () -> Unit,
     onRecord: () -> Unit,
     onClear: () -> Unit
 ) {
@@ -851,31 +840,7 @@ private fun StudioPrimaryTrack(
                 textAlign = TextAlign.End,
                 modifier = Modifier.width(30.dp)
             )
-            Spacer(Modifier.width(6.dp))
-            Box(
-                modifier = Modifier
-                    .width(58.dp)
-                    .height(27.dp)
-                    .background(
-                        if (controlsEnabled) {
-                            when (micGain) {
-                                4f -> Color(0xFF9A432E)
-                                2f -> Color(0xFF376A55)
-                                else -> Color(0xFF303A40)
-                            }
-                        } else Color(0xFF222A2E),
-                        RoundedCornerShape(7.dp)
-                    )
-                    .clickable(enabled = controlsEnabled, onClick = onMicGain),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "MIC x${micGain.roundToInt()}",
-                    color = if (controlsEnabled) Color.White else Color(0xFF5B6469),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+
         }
     }
 }
