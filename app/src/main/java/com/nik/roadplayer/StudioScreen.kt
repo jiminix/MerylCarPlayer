@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -79,7 +80,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private const val STUDIO_TRACK_COUNT = 5
+private const val STUDIO_TRACK_COUNT = 3
 private const val STUDIO_SAMPLE_RATE = 44100
 private const val WAV_HEADER_SIZE = 44
 
@@ -97,16 +98,14 @@ fun StudioScreen(
     val scope = rememberCoroutineScope()
     val engine = remember { MerylStudioEngine(context.applicationContext) }
 
-    val volumes = remember { mutableStateListOf(1f, 1f, 1f, 1f, 1f) }
-    val muted = remember { mutableStateListOf(false, false, false, false, false) }
-    val solo = remember { mutableStateListOf(false, false, false, false, false) }
-    val existing = remember { mutableStateListOf(false, false, false, false, false) }
-    val durations = remember { mutableStateListOf(0L, 0L, 0L, 0L, 0L) }
+    val volumes = remember { mutableStateListOf(1f, 1f, 1f) }
+    val muted = remember { mutableStateListOf(false, false, false) }
+    val solo = remember { mutableStateListOf(false, false, false) }
+    val existing = remember { mutableStateListOf(false, false, false) }
+    val durations = remember { mutableStateListOf(0L, 0L, 0L) }
     val peaks = remember {
         mutableStateListOf(
             emptyList<Float>(),
-            emptyList(),
-            emptyList(),
             emptyList(),
             emptyList()
         )
@@ -238,9 +237,7 @@ fun StudioScreen(
 
     val compactBorderColors = listOf(
         Color(0xFFFF7A20),
-        Color(0xFF5E7CFF),
-        Color(0xFF00C96B),
-        Color(0xFFFF3434)
+        Color(0xFF5E7CFF)
     )
 
     Column(
@@ -485,55 +482,7 @@ fun StudioScreen(
 
         Spacer(Modifier.height(7.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            CompactStudioTrack(
-                index = 3,
-                borderColor = compactBorderColors[2],
-                hasAudio = existing[3],
-                durationMs = durations[3],
-                timelineDurationMs = timelineDuration,
-                volume = volumes[3],
-                muted = muted[3],
-                solo = solo[3],
-                recording = recordingTrack == 3,
-                controlsEnabled = recordingTrack == null && !exporting,
-                modifier = Modifier.weight(1f),
-                onVolume = { volumes[3] = it },
-                onMute = { muted[3] = !muted[3] },
-                onSolo = { solo[3] = !solo[3] },
-                onRecord = { requestRecord(3) },
-                onClear = {
-                    engine.deleteTrack(3)
-                    existing[3] = false
-                    durations[3] = 0L
-                }
-            )
-            CompactStudioTrack(
-                index = 4,
-                borderColor = compactBorderColors[3],
-                hasAudio = existing[4],
-                durationMs = durations[4],
-                timelineDurationMs = timelineDuration,
-                volume = volumes[4],
-                muted = muted[4],
-                solo = solo[4],
-                recording = recordingTrack == 4,
-                controlsEnabled = recordingTrack == null && !exporting,
-                modifier = Modifier.weight(1f),
-                onVolume = { volumes[4] = it },
-                onMute = { muted[4] = !muted[4] },
-                onSolo = { solo[4] = !solo[4] },
-                onRecord = { requestRecord(4) },
-                onClear = {
-                    engine.deleteTrack(4)
-                    existing[4] = false
-                    durations[4] = 0L
-                }
-            )
-        }
+        StudioLightMetronome(modifier = Modifier.fillMaxWidth())
 
         Spacer(Modifier.height(10.dp))
     }
@@ -871,6 +820,107 @@ private fun CompactStudioTrack(
                 textAlign = TextAlign.End,
                 modifier = Modifier.width(24.dp)
             )
+        }
+    }
+}
+
+
+/**
+ * Visual-only metronome: its large light is also the TAP TEMPO surface.
+ * Timing uses elapsedRealtime so wall-clock changes do not affect the beat.
+ */
+@Composable
+private fun StudioLightMetronome(modifier: Modifier = Modifier) {
+    var bpm by remember { mutableStateOf(120) }
+    var running by remember { mutableStateOf(true) }
+    var lightOn by remember { mutableStateOf(false) }
+    var beatOrigin by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+    val taps = remember { mutableListOf<Long>() }
+
+    LaunchedEffect(bpm, running, beatOrigin) {
+        if (!running) {
+            lightOn = false
+            return@LaunchedEffect
+        }
+        while (true) {
+            lightOn = true
+            delay(115L)
+            lightOn = false
+            delay((60_000L / bpm.toLong() - 115L).coerceAtLeast(35L))
+        }
+    }
+
+    Row(
+        modifier = modifier
+            .border(2.dp, Color(0xFF79E6BD), RoundedCornerShape(16.dp))
+            .background(Color(0xFF1A2329), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "MÉTRONOME",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Text(
+                text = "$bpm BPM",
+                color = Color(0xFF79E6BD),
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Tapotez la lumière au rythme voulu",
+                color = Color(0xFFB2C0C4),
+                fontSize = 9.sp,
+                maxLines = 2
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .size(58.dp)
+                .background(
+                    if (lightOn) Color(0xFF66FFB3) else Color(0xFF294239),
+                    CircleShape
+                )
+                .border(2.dp, Color(0xFF79E6BD), CircleShape)
+                .clickable {
+                    val now = SystemClock.elapsedRealtime()
+                    val interval = if (taps.isEmpty()) Long.MAX_VALUE else now - taps.last()
+                    // A pause or an accidental double-tap starts a fresh measurement.
+                    if (interval !in 190L..2000L) taps.clear()
+                    taps.add(now)
+                    if (taps.size > 5) taps.removeAt(0)
+                    if (taps.size >= 2) {
+                        val meanInterval = (taps.last() - taps.first()).toDouble() /
+                            (taps.size - 1)
+                        bpm = (60_000.0 / meanInterval).roundToInt().coerceIn(30, 300)
+                    }
+                    beatOrigin = now
+                    running = true
+                    lightOn = true
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "●",
+                color = if (lightOn) Color.White else Color(0xFF79E6BD),
+                fontSize = 27.sp
+            )
+        }
+
+        Spacer(Modifier.width(9.dp))
+
+        StudioTransportButton(
+            text = if (running) "PAUSE" else "MARCHE",
+            enabled = true,
+            modifier = Modifier.width(66.dp)
+        ) {
+            running = !running
+            taps.clear()
+            if (running) beatOrigin = SystemClock.elapsedRealtime()
         }
     }
 }

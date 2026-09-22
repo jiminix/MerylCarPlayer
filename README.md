@@ -1,31 +1,13 @@
-# MerylCarPlayer V0.53 — Android Studio
+# MerylCarPlayer V0.87 — Android Studio
 
-Base de développement de MerylCarPlayer V0.53.
+Version 0.87 : Mini Studio à trois pistes (pistes 1, 2 et 3) et métronome lumineux TAP TEMPO.
 
-## Ouvrir dans Android Studio
-1. Android Studio > Open
-2. Choisir le dossier `MerylCarPlayer_V0.53_ANDROID_STUDIO`
-3. Attendre la synchronisation Gradle
-4. Brancher le téléphone en USB
-5. Cliquer sur Run ▶
+- Touchez plusieurs fois la grande lumière au tempo voulu : le rythme est estimé sur les derniers taps et affiché en BPM (30–300).
+- La lumière clignote à chaque battement ; le bouton PAUSE / MARCHE contrôle le métronome.
+- Le métronome est uniquement visuel : aucun clic n'est enregistré ni ajouté à l'export audio.
+- Les anciens fichiers de pistes 4 et 5 ne sont pas effacés lors de la mise à jour, mais ils ne sont plus lus ni mixés.
 
-## Configuration
-- Version : 0.53
-- applicationId : com.nik.roadplayer
-- minSdk : 29
-- targetSdk / compileSdk : 36
-- Java / Kotlin JVM : 17
+## Compilation
 
-## V0.52
-- Le widget conserve le dernier morceau affiché lorsqu'on arrête la lecture.
-- Pochette, artiste, album et titre restent visibles jusqu'au changement de morceau dans MerylCarPlayer.
-
-## V0.52
-- Le bandeau sous le logo est rouge (#FF3131) pour confirmer visuellement que la mise à jour est installée.
-- Une commande STOP externe est convertie en PAUSE afin de conserver le morceau et ses métadonnées dans le lecteur principal.
-
-## V0.53
-- En mode Artistes, une seule pochette est affichée par artiste.
-- Double appui sur la pochette : affiche tous les albums de cet artiste.
-- Dans la vue artiste ouverte, un appui simple sur une pochette ouvre/lit l'album.
-- Retour Android : revient à la liste des artistes.
+Le workflow GitHub Actions `.github/workflows/android-debug.yml` compile l'APK de test à chaque push sur `main`.
+La signature de débogage reste celle de la version précédente pour permettre une installation par-dessus, sous réserve que le cache de signature soit disponible.
