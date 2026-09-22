@@ -854,33 +854,20 @@ private fun StudioLightMetronome(modifier: Modifier = Modifier) {
         modifier = modifier
             .border(2.dp, Color(0xFF79E6BD), RoundedCornerShape(16.dp))
             .background(Color(0xFF1A2329), RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "MÉTRONOME",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            Text(
-                text = "$bpm BPM",
-                color = Color(0xFF79E6BD),
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Tapotez la lumière au rythme voulu",
-                color = Color(0xFFB2C0C4),
-                fontSize = 9.sp,
-                maxLines = 2
-            )
-        }
+        Text(
+            text = "$bpm BPM",
+            color = Color(0xFF79E6BD),
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f)
+        )
 
         Box(
             modifier = Modifier
-                .size(58.dp)
+                .size(46.dp)
                 .background(
                     if (lightOn) Color(0xFF66FFB3) else Color(0xFF294239),
                     CircleShape
@@ -907,7 +894,7 @@ private fun StudioLightMetronome(modifier: Modifier = Modifier) {
             Text(
                 text = "●",
                 color = if (lightOn) Color.White else Color(0xFF79E6BD),
-                fontSize = 27.sp
+                fontSize = 22.sp
             )
         }
 
