@@ -13,8 +13,8 @@
         android:allowBackup="true"
         android:appCategory="audio"
         android:label="MerylCarPlayer TEST"
-        android:icon="@drawable/ic_meryl_test"
-        android:roundIcon="@drawable/ic_meryl_test"
+        android:icon="@drawable/meryl_caraudio_icon"
+        android:roundIcon="@drawable/meryl_caraudio_icon"
         android:theme="@style/Theme.RoadPlayer">
 
         <activity
