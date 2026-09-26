@@ -245,7 +245,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.00")
+                PlayerHeader(version = "V1.01", miniStudio = studioOpen)
                 StartupLoadingBar(progress = null)
             }
         }
@@ -1117,7 +1117,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
 }
 
 @Composable
-private fun PlayerHeader(version: String) {
+private fun PlayerHeader(version: String, miniStudio: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1128,7 +1128,7 @@ private fun PlayerHeader(version: String) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         MerylBanner(
-            kind = MerylBannerKind.CAR_AUDIO,
+            kind = if (miniStudio) MerylBannerKind.MINI_STUDIO else MerylBannerKind.CAR_AUDIO,
             modifier = Modifier
                 .weight(1f)
                 .height(60.dp)
