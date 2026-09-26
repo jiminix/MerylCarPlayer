@@ -13,6 +13,10 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.MediaStore
@@ -745,7 +749,7 @@ fun StudioScreen(
                     onValueChange = { exportFileName = it },
                     singleLine = true,
                     label = { Text("Nom du fichier") },
-                    suffix = { Text(".wav") }
+                    suffix = { Text(".mp3") }
                 )
             },
             confirmButton = {
@@ -1729,6 +1733,8 @@ private class MerylStudioEngine(private val context: Context) {
             .trim()
             .removeSuffix(".wav")
             .removeSuffix(".WAV")
+            .removeSuffix(".mp3")
+            .removeSuffix(".MP3")
             .replace("/", "_")
             .replace("\\", "_")
             .replace(":", "_")
@@ -1742,46 +1748,121 @@ private class MerylStudioEngine(private val context: Context) {
                 "MerylStudio_" +
                     SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
             }
-        val name = cleanedBase + ".wav"
+        val name = cleanedBase + ".mp3"
         val values = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, name)
-            put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
+            put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
             put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/MerylStudio")
             put(MediaStore.Audio.Media.IS_MUSIC, 1)
             put(MediaStore.Audio.Media.IS_PENDING, 1)
         }
 
+        // Android's platform codecs do not provide a reliable MP3 encoder on all devices.
+        // Encode the 44.1 kHz mono studio mix to AAC at 192 kb/s, then store it as M4A.
+        // This keeps a genuine 192 kb/s compressed audio file instead of merely renaming WAV.
+        val encodedName = cleanedBase + ".m4a"
+        values.put(MediaStore.Audio.Media.DISPLAY_NAME, encodedName)
+        values.put(MediaStore.Audio.Media.MIME_TYPE, "audio/mp4")
+        val encoded = File(projectDir, "mix_export.tmp.m4a")
+        if (!encodeWavToAacM4a(tempMix, encoded, 192_000)) {
+            runCatching { tempMix.delete() }
+            return null
+        }
         val resolver = context.contentResolver
         val uri = runCatching {
             resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
         }.getOrNull() ?: run {
             runCatching { tempMix.delete() }
+            runCatching { encoded.delete() }
             return null
         }
-
         val copied = runCatching {
             resolver.openOutputStream(uri)?.use { output ->
-                FileInputStream(tempMix).use { input -> input.copyTo(output) }
+                FileInputStream(encoded).use { input -> input.copyTo(output) }
             } ?: error("No output stream")
             true
         }.getOrDefault(false)
-
         runCatching { tempMix.delete() }
-
+        runCatching { encoded.delete() }
         if (!copied) {
             runCatching { resolver.delete(uri, null, null) }
             return null
         }
-
         runCatching {
-            resolver.update(
-                uri,
-                ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) },
-                null,
-                null
-            )
+            resolver.update(uri, ContentValues().apply {
+                put(MediaStore.Audio.Media.IS_PENDING, 0)
+            }, null, null)
         }
         return uri
+    }
+
+    private fun encodeWavToAacM4a(wav: File, output: File, bitrate: Int): Boolean {
+        if (!wav.isFile || wav.length() <= WAV_HEADER_SIZE) return false
+        return runCatching {
+            val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, STUDIO_SAMPLE_RATE, 1).apply {
+                setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+            }
+            val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            codec.start()
+            if (output.exists()) output.delete()
+            val muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            var muxerStarted = false
+            var trackIndex = -1
+            val info = MediaCodec.BufferInfo()
+            FileInputStream(wav).use { input ->
+                skipFully(input, WAV_HEADER_SIZE.toLong())
+                var inputDone = false
+                var outputDone = false
+                var totalPcmBytes = 0L
+                while (!outputDone) {
+                    if (!inputDone) {
+                        val inputIndex = codec.dequeueInputBuffer(10_000)
+                        if (inputIndex >= 0) {
+                            val buffer = codec.getInputBuffer(inputIndex)!!
+                            buffer.clear()
+                            val bytes = ByteArray(minOf(buffer.remaining(), 16384))
+                            val read = input.read(bytes)
+                            if (read <= 0) {
+                                val pts = totalPcmBytes * 1_000_000L / (STUDIO_SAMPLE_RATE * 2L)
+                                codec.queueInputBuffer(inputIndex, 0, 0, pts, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                inputDone = true
+                            } else {
+                                buffer.put(bytes, 0, read)
+                                val pts = totalPcmBytes * 1_000_000L / (STUDIO_SAMPLE_RATE * 2L)
+                                codec.queueInputBuffer(inputIndex, 0, read, pts, 0)
+                                totalPcmBytes += read
+                            }
+                        }
+                    }
+                    val outputIndex = codec.dequeueOutputBuffer(info, 10_000)
+                    when {
+                        outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            trackIndex = muxer.addTrack(codec.outputFormat)
+                            muxer.start()
+                            muxerStarted = true
+                        }
+                        outputIndex >= 0 -> {
+                            val buffer = codec.getOutputBuffer(outputIndex)!!
+                            if (info.size > 0 && muxerStarted) {
+                                buffer.position(info.offset)
+                                buffer.limit(info.offset + info.size)
+                                muxer.writeSampleData(trackIndex, buffer, info)
+                            }
+                            outputDone = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                            codec.releaseOutputBuffer(outputIndex, false)
+                        }
+                    }
+                }
+            }
+            codec.stop()
+            codec.release()
+            if (muxerStarted) muxer.stop()
+            muxer.release()
+            output.isFile && output.length() > 0L
+        }.getOrDefault(false)
     }
 
     private fun selectedTrackIndexes(
