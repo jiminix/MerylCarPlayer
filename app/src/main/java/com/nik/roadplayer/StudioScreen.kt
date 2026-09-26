@@ -495,6 +495,27 @@ fun StudioScreen(
             }
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
+                text = "EFFACER",
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                activeColor = Color(0xFF8E3439),
+                modifier = Modifier.width(86.dp)
+            ) {
+                engine.stopPlayback()
+                playing = false
+                engine.deleteAllTracks()
+                repeat(STUDIO_TRACK_COUNT) { index ->
+                    existing[index] = false
+                    durations[index] = 0L
+                    peaks[index] = emptyList()
+                }
+                segmentEnds.clear()
+                playheadMs = 0L
+                playbackStartOffset = 0L
+                playbackStartedAt = 0L
+                Toast.makeText(context, "Tous les enregistrements ont été effacés", Toast.LENGTH_SHORT).show()
+            }
+            Spacer(Modifier.width(8.dp))
+            StudioTransportButton(
                 text = "OUVRIR PROJET",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
                 activeColor = Color(0xFF3D527A),
