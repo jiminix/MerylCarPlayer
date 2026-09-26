@@ -1812,7 +1812,7 @@ private class MerylStudioEngine(private val context: Context) {
             var muxerStarted = false
             var trackIndex = -1
             val info = MediaCodec.BufferInfo()
-            FileInputStream(wav).use { input ->
+            BufferedInputStream(FileInputStream(wav)).use { input ->
                 skipFully(input, WAV_HEADER_SIZE.toLong())
                 var inputDone = false
                 var outputDone = false
