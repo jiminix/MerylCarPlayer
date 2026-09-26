@@ -245,7 +245,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.01")
+                PlayerHeader(version = "V1.02")
                 StartupLoadingBar(progress = null)
             }
         }
@@ -557,7 +557,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V1.01", miniStudio = studioOpen)
+            PlayerHeader(version = "V1.02", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
 
         if (studioOpen) {
             StudioScreen(
@@ -1117,7 +1117,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
 }
 
 @Composable
-private fun PlayerHeader(version: String, miniStudio: Boolean = false) {
+private fun PlayerHeader(version: String, miniStudio: Boolean = false, onMiniStudioBack: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1127,6 +1127,18 @@ private fun PlayerHeader(version: String, miniStudio: Boolean = false) {
             .padding(start = 5.dp, end = 7.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (miniStudio && onMiniStudioBack != null) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(Color(0xFF303A40), RoundedCornerShape(10.dp))
+                    .clickable(onClick = onMiniStudioBack),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("‹", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(5.dp))
+        }
         MerylBanner(
             kind = if (miniStudio) MerylBannerKind.MINI_STUDIO else MerylBannerKind.CAR_AUDIO,
             modifier = Modifier
