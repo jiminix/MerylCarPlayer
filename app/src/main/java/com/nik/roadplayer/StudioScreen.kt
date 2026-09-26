@@ -480,10 +480,10 @@ fun StudioScreen(
             horizontalArrangement = Arrangement.Center
         ) {
             StudioTransportButton(
-                text = "SAUVER PROJET",
+                text = "SAVE",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF355D48),
-                modifier = Modifier.width(118.dp)
+                modifier = Modifier.width(96.dp)
             ) {
                 projectName = "Projet_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
                 projectList = engine.listProjects()
@@ -491,10 +491,10 @@ fun StudioScreen(
             }
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
-                text = "EFFACER",
+                text = "UNDO",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF8E3439),
-                modifier = Modifier.width(86.dp)
+                modifier = Modifier.width(96.dp)
             ) {
                 engine.stopPlayback()
                 playing = false
@@ -512,10 +512,10 @@ fun StudioScreen(
             }
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
-                text = "OUVRIR PROJET",
+                text = "OPEN",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
                 activeColor = Color(0xFF3D527A),
-                modifier = Modifier.width(118.dp)
+                modifier = Modifier.width(96.dp)
             ) {
                 projectList = engine.listProjects()
                 if (projectList.isEmpty()) {
