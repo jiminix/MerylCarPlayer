@@ -78,6 +78,7 @@ import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -137,6 +138,9 @@ fun StudioScreen(
     var countdownBeat by remember { mutableStateOf(0) }
     var countdownTempo by remember { mutableStateOf(120) }
     var stoppingRecording by remember { mutableStateOf(false) }
+    var projectDialogOpen by remember { mutableStateOf(false) }
+    var projectName by remember { mutableStateOf("") }
+    var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
 
     val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
     val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
@@ -479,6 +483,39 @@ fun StudioScreen(
             }
         }
 
+        Spacer(Modifier.height(7.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            StudioTransportButton(
+                text = "SAUVER PROJET",
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                activeColor = Color(0xFF355D48),
+                modifier = Modifier.width(118.dp)
+            ) {
+                projectName = "Projet_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
+                projectList = engine.listProjects()
+                projectDialogOpen = true
+            }
+            Spacer(Modifier.width(8.dp))
+            StudioTransportButton(
+                text = "OUVRIR PROJET",
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                activeColor = Color(0xFF3D527A),
+                modifier = Modifier.width(118.dp)
+            ) {
+                projectList = engine.listProjects()
+                if (projectList.isEmpty()) {
+                    Toast.makeText(context, "Aucun projet enregistré", Toast.LENGTH_SHORT).show()
+                } else {
+                    projectName = ""
+                    projectDialogOpen = true
+                }
+            }
+        }
+
         Spacer(Modifier.height(9.dp))
 
         Row(
@@ -561,6 +598,69 @@ fun StudioScreen(
                 .align(Alignment.BottomEnd)
                 .padding(end = 12.dp, bottom = 68.dp),
             onClick = onScan
+        )
+    }
+
+    if (projectDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { projectDialogOpen = false },
+            title = { Text(if (projectName.isNotEmpty()) "Sauvegarder le projet" else "Ouvrir un projet", fontWeight = FontWeight.Bold) },
+            text = {
+                if (projectName.isNotEmpty()) {
+                    OutlinedTextField(
+                        value = projectName,
+                        onValueChange = { projectName = it },
+                        singleLine = true,
+                        label = { Text("Nom du projet") }
+                    )
+                } else {
+                    Column {
+                        projectList.forEach { name ->
+                            Text(
+                                text = name,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        engine.stopPlayback()
+                                        playing = false
+                                        if (engine.loadProject(name)) {
+                                            repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
+                                            val loaded = engine.loadProjectSettings()
+                                            loaded?.let { s ->
+                                                repeat(STUDIO_TRACK_COUNT) { i ->
+                                                    volumes[i] = s.volumes.getOrElse(i) { 1f }
+                                                    muted[i] = s.muted.getOrElse(i) { false }
+                                                    solo[i] = s.solo.getOrElse(i) { false }
+                                                    looped[i] = s.looped.getOrElse(i) { false }
+                                                }
+                                                tempoBpm = s.bpm
+                                            }
+                                            playheadMs = (0 until STUDIO_TRACK_COUNT).maxOfOrNull { engine.trackDurationMs(it) } ?: 0L
+                                            Toast.makeText(context, "Projet ouvert : $name", Toast.LENGTH_SHORT).show()
+                                        }
+                                        projectDialogOpen = false
+                                    }
+                                    .padding(vertical = 10.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (projectName.isNotEmpty()) {
+                    TextButton(onClick = {
+                        val name = projectName.trim()
+                        if (name.isNotEmpty() && engine.saveProject(name, settings())) {
+                            Toast.makeText(context, "Projet enregistré : $name", Toast.LENGTH_SHORT).show()
+                            projectDialogOpen = false
+                        }
+                    }) { Text("ENREGISTRER") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { projectDialogOpen = false }) { Text("ANNULER") }
+            }
         )
     }
 
@@ -1199,6 +1299,7 @@ private fun formatStudioDuration(ms: Long): String {
 
 private class MerylStudioEngine(private val context: Context) {
     private val projectDir = File(context.filesDir, "meryl_studio/current_project").apply { mkdirs() }
+    private val savedProjectsDir = File(context.filesDir, "meryl_studio/saved_projects").apply { mkdirs() }
     private val recording = AtomicBoolean(false)
     private val playbackGeneration = AtomicInteger(0)
     private var currentRecorder: AudioRecord? = null
@@ -1402,6 +1503,71 @@ private class MerylStudioEngine(private val context: Context) {
         } else {
             stopPlayback()
         }
+    }
+
+    fun listProjects(): List<String> =
+        savedProjectsDir.listFiles()
+            ?.filter { it.isDirectory }
+            ?.map { it.name }
+            ?.sortedDescending()
+            ?: emptyList()
+
+    fun saveProject(requestedName: String, settings: StudioMixSettings): Boolean {
+        if (recording.get()) return false
+        val safeName = requestedName.trim()
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .ifBlank { "Projet" }
+        val destination = File(savedProjectsDir, safeName)
+        return runCatching {
+            if (destination.exists()) destination.deleteRecursively()
+            destination.mkdirs()
+            repeat(STUDIO_TRACK_COUNT) { index ->
+                val source = trackFile(index)
+                if (source.isFile) source.copyTo(File(destination, source.name), overwrite = true)
+            }
+            val json = JSONObject().apply {
+                put("bpm", settings.bpm)
+                put("volumes", settings.volumes.joinToString(","))
+                put("muted", settings.muted.joinToString(","))
+                put("solo", settings.solo.joinToString(","))
+                put("looped", settings.looped.joinToString(","))
+            }
+            File(destination, "project.json").writeText(json.toString())
+            true
+        }.getOrDefault(false)
+    }
+
+    fun loadProject(name: String): Boolean {
+        if (recording.get()) return false
+        val sourceDir = File(savedProjectsDir, name)
+        if (!sourceDir.isDirectory) return false
+        return runCatching {
+            stopPlayback()
+            deleteAllTracks()
+            repeat(STUDIO_TRACK_COUNT) { index ->
+                val source = File(sourceDir, "track_" + (index + 1) + ".wav")
+                if (source.isFile) source.copyTo(trackFile(index), overwrite = true)
+            }
+            File(sourceDir, "project.json").takeIf { it.isFile }?.copyTo(File(projectDir, "project.json"), overwrite = true)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun loadProjectSettings(): StudioMixSettings? {
+        val file = File(projectDir, "project.json")
+        if (!file.isFile) return null
+        return runCatching {
+            val json = JSONObject(file.readText())
+            fun floats(key: String) = json.optString(key).split(",").mapNotNull { it.toFloatOrNull() }
+            fun bools(key: String) = json.optString(key).split(",").map { it.toBoolean() }
+            StudioMixSettings(
+                volumes = floats("volumes"),
+                muted = bools("muted"),
+                solo = bools("solo"),
+                looped = bools("looped"),
+                bpm = json.optInt("bpm", 120)
+            )
+        }.getOrNull()
     }
 
     fun deleteTrack(index: Int) {
