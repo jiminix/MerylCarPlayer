@@ -9,6 +9,7 @@ import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
@@ -631,16 +632,7 @@ fun StudioScreen(
             }
         }
 
-        StudioFloatingScanButton(
-            enabled = scanEnabled && recordingTrack == null && countdownTrack == null &&
-                !stoppingRecording && !exporting,
-            scanning = scanning,
-            color = scanColor,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 68.dp),
-            onClick = onScan
-        )
+
     }
 
     if (projectDialogOpen) {
@@ -788,57 +780,6 @@ fun StudioScreen(
         )
     }
 }
-
-@Composable
-private fun StudioFloatingScanButton(
-    enabled: Boolean,
-    scanning: Boolean,
-    color: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .size(56.dp)
-            .background(
-                if (enabled) color else Color(0xFF252C30),
-                CircleShape
-            )
-            .border(
-                width = 1.dp,
-                color = if (enabled) Color.White.copy(alpha = 0.25f) else Color(0xFF3D4549),
-                shape = CircleShape
-            )
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        if (scanning) {
-            Text(
-                text = "…",
-                color = Color.White,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "↻",
-                    color = Color.White,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 22.sp
-                )
-                Text(
-                    text = "SCAN",
-                    color = Color.White,
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
 
 @Composable
 private fun StudioPrimaryTrack(
@@ -1460,6 +1401,15 @@ private class MerylStudioEngine(private val context: Context) {
         if (recorder.state != AudioRecord.STATE_INITIALIZED) {
             runCatching { recorder.release() }
             return false
+        }
+
+        // Keep REC on the phone's built-in microphone even when USB-C audio is connected.
+        // Playback/output routing remains managed by Android and can continue through the car stereo.
+        runCatching {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val builtInMic = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+                .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+            if (builtInMic != null) recorder.setPreferredDevice(builtInMic)
         }
 
         val temp = rawTempFile(index)
