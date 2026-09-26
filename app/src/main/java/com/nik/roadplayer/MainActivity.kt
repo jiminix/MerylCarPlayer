@@ -235,10 +235,13 @@ private fun MerylCarPlayerApp() {
     // Construire l'index et les caches volumineux hors du thread graphique.
     // Afficher le chargement immédiatement, même avant l'ouverture de la bibliothèque.
     var repository by remember { mutableStateOf<MusicRepository?>(null) }
+    var startupProgress by remember { mutableStateOf(0f) }
     LaunchedEffect(context.applicationContext) {
+        startupProgress = 0.05f
         repository = withContext(Dispatchers.IO) {
             MusicRepository(context.applicationContext)
         }
+        startupProgress = 1f
     }
     val readyRepository = repository
     if (readyRepository == null) {
@@ -246,8 +249,8 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.07")
-                StartupLoadingBar(progress = null)
+                PlayerHeader(version = "V1.09")
+                StartupLoadingBar(progress = startupProgress)
             }
         }
         return
@@ -426,12 +429,16 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
     LaunchedEffect(permissionGranted) {
         if (permissionGranted) {
             loading = true
+            scanProgress = 0f
             var restoredFromCache = false
             try {
+                scanProgress = 0.15f
                 val cachedAlbums = repository.cachedAlbumsFromSdMusic()
+                scanProgress = 0.75f
                 if (cachedAlbums.isNotEmpty()) {
                     albums = cachedAlbums
                     playlists = repository.listPlaylists()
+                    scanProgress = 1f
                     restoredFromCache = true
                 } else {
                     startupScanInProgress = true
@@ -448,6 +455,8 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                     scanProgress = 1f
                 }
             } finally {
+                if (scanProgress != null) scanProgress = 1f
+                if (startupScanInProgress || scanProgress != null) delay(250L)
                 loading = false
                 if (startupScanInProgress) delay(250L)
                 startupScanInProgress = false
@@ -558,7 +567,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V1.07", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
+            PlayerHeader(version = "V1.09", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
 
         if (studioOpen) {
             StudioScreen(
