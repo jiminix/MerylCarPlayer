@@ -280,7 +280,7 @@ fun StudioScreen(
 
     LaunchedEffect(recordingTrack, recordingStartedAt) {
         while (recordingTrack != null && recordingStartedAt > 0L) {
-            playheadMs = (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
+            playheadMs = playbackStartOffset + (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
             delay(40L)
         }
     }
@@ -1418,7 +1418,7 @@ private class MerylStudioEngine(private val context: Context) {
                 if (ok) {
                     val destination = trackFile(index)
                     runCatching {
-                        writeWavFromRaw(temp, destination)
+                        appendRawToWav(temp, destination)
                     }
                 }
                 runCatching { temp.delete() }
@@ -1780,6 +1780,29 @@ private class MerylStudioEngine(private val context: Context) {
         } finally {
             runCatching { player.stop() }
             runCatching { player.release() }
+        }
+    }
+
+    private fun appendRawToWav(raw: File, destination: File) {
+        if (!destination.isFile || destination.length() <= WAV_HEADER_SIZE) {
+            writeWavFromRaw(raw, destination)
+            return
+        }
+        val existingDataLength = (destination.length() - WAV_HEADER_SIZE).coerceAtLeast(0L)
+        val newDataLength = raw.length()
+        val tempWav = File(destination.parentFile, destination.name + ".append.tmp")
+        BufferedOutputStream(FileOutputStream(tempWav)).use { output ->
+            writeWavHeader(output, existingDataLength + newDataLength)
+            BufferedInputStream(FileInputStream(destination)).use { input ->
+                skipFully(input, WAV_HEADER_SIZE.toLong())
+                input.copyTo(output)
+            }
+            FileInputStream(raw).use { input -> input.copyTo(output) }
+        }
+        if (destination.exists()) destination.delete()
+        if (!tempWav.renameTo(destination)) {
+            tempWav.copyTo(destination, overwrite = true)
+            tempWav.delete()
         }
     }
 
