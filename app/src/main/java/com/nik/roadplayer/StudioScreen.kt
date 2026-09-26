@@ -428,15 +428,29 @@ fun StudioScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             StudioTransportButton(
-                text = "⏮ DÉBUT",
+                text = "⏮",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
-                modifier = Modifier.width(72.dp)
+                modifier = Modifier.width(48.dp)
             ) {
                 engine.stopPlayback()
                 playing = false
                 playbackStartOffset = 0L
                 playbackStartedAt = 0L
                 playheadMs = 0L
+            }
+
+            Spacer(Modifier.width(4.dp))
+
+            StudioTransportButton(
+                text = "⏭",
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing.any { it },
+                modifier = Modifier.width(48.dp)
+            ) {
+                engine.stopPlayback()
+                playing = false
+                playbackStartOffset = storedTimelineDuration
+                playbackStartedAt = 0L
+                playheadMs = storedTimelineDuration
             }
 
             Spacer(Modifier.width(6.dp))
@@ -481,6 +495,11 @@ fun StudioScreen(
                 } else if (recordingTrack != null && !stoppingRecording) {
                     stoppingRecording = true
                     val stoppedTrack = recordingTrack
+                    val recordedEndMs = if (recordingStartedAt > 0L) {
+                        (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
+                    } else {
+                        playheadMs
+                    }
                     scope.launch {
                         withContext(Dispatchers.IO) {
                             engine.stopRecordingBlocking()
@@ -488,7 +507,23 @@ fun StudioScreen(
                         recordingTrack = null
                         recordingStartedAt = 0L
                         stoppingRecording = false
-                        stoppedTrack?.let { refreshTrack(it) }
+                        stoppedTrack?.let { track ->
+                            val actualDuration = withContext(Dispatchers.IO) {
+                                engine.trackDurationMs(track)
+                            }
+                            existing[track] = engine.hasTrack(track)
+                            durations[track] = actualDuration
+                            if (track == 0) {
+                                peaks[track] = withContext(Dispatchers.IO) {
+                                    engine.trackPeaks(track, 96)
+                                }
+                            }
+                            // By default, keep the playhead exactly at the end of the
+                            // recording that has just been committed to disk.
+                            playheadMs = actualDuration.takeIf { it > 0L } ?: recordedEndMs
+                            playbackStartOffset = playheadMs
+                            playbackStartedAt = 0L
+                        }
                     }
                 } else {
                     engine.stopPlayback()
