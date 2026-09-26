@@ -336,6 +336,7 @@ fun StudioScreen(
             timelineProgress = timelineProgress,
             timelineDurationMs = timelineDuration,
             playheadMs = playheadMs,
+            segmentBoundariesMs = segmentEnds.toList(),
             onTimelineSeek = { fraction ->
                 if (!playing && recordingTrack == null) {
                     playheadMs = (timelineDuration * fraction.coerceIn(0f, 1f)).toLong()
@@ -368,7 +369,8 @@ fun StudioScreen(
             ) {
                 engine.stopPlayback()
                 playing = false
-                val previous = segmentEnds.filter { it < playheadMs - 50L }.maxOrNull() ?: 0L
+                val takeStarts = listOf(0L) + segmentEnds.filter { it > 0L && it < storedTimelineDuration }.sorted()
+                val previous = takeStarts.filter { it < playheadMs - 50L }.maxOrNull() ?: 0L
                 playbackStartOffset = previous
                 playbackStartedAt = 0L
                 playheadMs = previous
@@ -383,7 +385,8 @@ fun StudioScreen(
             ) {
                 engine.stopPlayback()
                 playing = false
-                val next = segmentEnds.filter { it > playheadMs + 50L }.minOrNull() ?: storedTimelineDuration
+                val takeStarts = listOf(0L) + segmentEnds.filter { it > 0L && it < storedTimelineDuration }.sorted()
+                val next = takeStarts.filter { it > playheadMs + 50L }.minOrNull() ?: takeStarts.lastOrNull() ?: 0L
                 playbackStartOffset = next
                 playbackStartedAt = 0L
                 playheadMs = next
@@ -847,6 +850,7 @@ private fun StudioPrimaryTrack(
     timelineProgress: Float,
     timelineDurationMs: Long,
     playheadMs: Long,
+    segmentBoundariesMs: List<Long>,
     onTimelineSeek: (Float) -> Unit,
     onVolume: (Float) -> Unit,
     onMute: () -> Unit,
@@ -930,6 +934,8 @@ private fun StudioPrimaryTrack(
                 active = hasAudio,
                 recording = recording,
                 playheadProgress = timelineProgress,
+                segmentBoundariesMs = segmentBoundariesMs,
+                timelineDurationMs = timelineDurationMs,
                 modifier = Modifier.fillMaxSize()
             )
             if (!hasAudio && !recording) {
@@ -1232,6 +1238,8 @@ private fun StudioTimelineWaveform(
     active: Boolean,
     recording: Boolean,
     playheadProgress: Float,
+    segmentBoundariesMs: List<Long>,
+    timelineDurationMs: Long,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
@@ -1239,14 +1247,24 @@ private fun StudioTimelineWaveform(
         if (peaks.isNotEmpty()) {
             val step = size.width / peaks.size.coerceAtLeast(1)
             val maxHalf = size.height * 0.38f
-            val waveColor = when {
-                recording -> Color(0xFFFF6666)
-                active -> Color(0xFFFFDE59)
-                else -> Color(0xFF49555B)
+            val takeColors = listOf(
+                Color(0xFFFFDE59), Color(0xFF5E7CFF), Color(0xFFFF7A20),
+                Color(0xFF79E6BD), Color(0xFFE96BC7), Color(0xFF9D7CFF)
+            )
+            val takeStarts = buildList {
+                add(0L)
+                segmentBoundariesMs.filter { it > 0L && it < timelineDurationMs }.sorted().forEach { add(it) }
             }
             peaks.forEachIndexed { i, value ->
                 val half = max(1f, value.coerceIn(0f, 1f) * maxHalf)
                 val x = step * i + step / 2f
+                val sampleMs = ((i.toDouble() / peaks.size.coerceAtLeast(1)) * timelineDurationMs).toLong()
+                val takeIndex = takeStarts.indexOfLast { it <= sampleMs }.coerceAtLeast(0)
+                val waveColor = when {
+                    recording && takeIndex == takeStarts.lastIndex -> Color(0xFFFF6666)
+                    active -> takeColors[takeIndex % takeColors.size]
+                    else -> Color(0xFF49555B)
+                }
                 drawLine(
                     color = waveColor,
                     start = Offset(x, center - half),
