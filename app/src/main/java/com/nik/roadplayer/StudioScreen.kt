@@ -141,6 +141,7 @@ fun StudioScreen(
     var projectDialogOpen by remember { mutableStateOf(false) }
     var projectName by remember { mutableStateOf("") }
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
+    val segmentEnds = remember { mutableStateListOf<Long>() }
 
     val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
     val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
@@ -178,8 +179,9 @@ fun StudioScreen(
         if (recordingTrack != null || stoppingRecording || exporting) return
         playing = false
         engine.stopPlayback()
-        playheadMs = 0L
-        playbackStartOffset = 0L
+        // A new take becomes the next common timeline segment.
+        playheadMs = storedTimelineDuration
+        playbackStartOffset = storedTimelineDuration
         recordingStartedAt = SystemClock.elapsedRealtime()
         beatOrigin = recordingStartedAt
         val started = engine.startRecording(
@@ -370,9 +372,10 @@ fun StudioScreen(
             ) {
                 engine.stopPlayback()
                 playing = false
-                playbackStartOffset = 0L
+                val previous = segmentEnds.filter { it < playheadMs - 50L }.maxOrNull() ?: 0L
+                playbackStartOffset = previous
                 playbackStartedAt = 0L
-                playheadMs = 0L
+                playheadMs = previous
             }
 
             Spacer(Modifier.width(4.dp))
@@ -384,9 +387,10 @@ fun StudioScreen(
             ) {
                 engine.stopPlayback()
                 playing = false
-                playbackStartOffset = storedTimelineDuration
+                val next = segmentEnds.filter { it > playheadMs + 50L }.minOrNull() ?: storedTimelineDuration
+                playbackStartOffset = next
                 playbackStartedAt = 0L
-                playheadMs = storedTimelineDuration
+                playheadMs = next
             }
 
             Spacer(Modifier.width(6.dp))
@@ -420,10 +424,10 @@ fun StudioScreen(
             Spacer(Modifier.width(6.dp))
 
             StudioTransportButton(
-                text = "■ STOP",
+                text = "■",
                 enabled = countdownTrack != null || (recordingTrack != null && !stoppingRecording) || playing,
                 activeColor = Color(0xFFB33E44),
-                modifier = Modifier.width(78.dp)
+                modifier = Modifier.width(48.dp)
             ) {
                 if (countdownTrack != null) {
                     countdownTrack = null
@@ -457,6 +461,10 @@ fun StudioScreen(
                             // By default, keep the playhead exactly at the end of the
                             // recording that has just been committed to disk.
                             playheadMs = actualDuration.takeIf { it > 0L } ?: recordedEndMs
+                            if (playheadMs > 0L && segmentEnds.none { kotlin.math.abs(it - playheadMs) < 50L }) {
+                                segmentEnds.add(playheadMs)
+                                segmentEnds.sort()
+                            }
                             playbackStartOffset = playheadMs
                             playbackStartedAt = 0L
                         }
@@ -467,20 +475,6 @@ fun StudioScreen(
                 }
             }
 
-            Spacer(Modifier.width(6.dp))
-
-            StudioTransportButton(
-                text = if (exporting) "MIX..." else "EXPORT",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
-                activeColor = Color(0xFF3268AF),
-                modifier = Modifier.width(78.dp)
-            ) {
-                playing = false
-                engine.stopPlayback()
-                exportFileName = "MerylStudio_" +
-                    SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
-                exportNameDialogOpen = true
-            }
         }
 
         Spacer(Modifier.height(7.dp))
