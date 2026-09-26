@@ -386,7 +386,7 @@ fun StudioScreen(
                 engine.stopPlayback()
                 playing = false
                 val takeStarts = listOf(0L) + segmentEnds.filter { it > 0L && it < storedTimelineDuration }.sorted()
-                val next = takeStarts.filter { it > playheadMs + 50L }.minOrNull() ?: takeStarts.lastOrNull() ?: 0L
+                val next = takeStarts.filter { it > playheadMs + 50L }.minOrNull() ?: storedTimelineDuration
                 playbackStartOffset = next
                 playbackStartedAt = 0L
                 playheadMs = next
