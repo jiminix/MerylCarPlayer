@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -142,6 +144,18 @@ fun StudioScreen(
     var projectName by remember { mutableStateOf("") }
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
+
+    val projectNameVoiceLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val spoken = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                ?.trim()
+            if (!spoken.isNullOrBlank()) projectName = spoken
+        }
+    }
 
     val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
     val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
@@ -628,12 +642,38 @@ fun StudioScreen(
             title = { Text(if (projectName.isNotEmpty()) "Sauvegarder le projet" else "Ouvrir un projet", fontWeight = FontWeight.Bold) },
             text = {
                 if (projectName.isNotEmpty()) {
-                    OutlinedTextField(
-                        value = projectName,
-                        onValueChange = { projectName = it },
-                        singleLine = true,
-                        label = { Text("Nom du projet") }
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = projectName,
+                            onValueChange = { projectName = it },
+                            singleLine = true,
+                            label = { Text("Nom du projet") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color(0xFF3D527A), RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Dicte le nom du projet")
+                                    }
+                                    runCatching { projectNameVoiceLauncher.launch(intent) }
+                                        .onFailure {
+                                            Toast.makeText(context, "Reconnaissance vocale indisponible", Toast.LENGTH_SHORT).show()
+                                        }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🎤", fontSize = 22.sp)
+                        }
+                    }
                 } else {
                     Column {
                         projectList.forEach { name ->
