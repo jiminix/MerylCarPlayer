@@ -309,24 +309,6 @@ fun StudioScreen(
                 .padding(bottom = 64.dp)
         ) {
 
-        if (countdownTrack != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .background(Color(0xFF4F2633), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "PISTE ${countdownTrack!! + 1}  ·  DÉPART DANS  $countdownBeat",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-        }
-
         StudioPrimaryTrack(
             hasAudio = existing[0],
             durationMs = durations[0],
@@ -602,6 +584,30 @@ fun StudioScreen(
         )
 
             Spacer(Modifier.height(10.dp))
+        }
+
+        if (countdownTrack != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xE610171B)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = countdownBeat.toString(),
+                        color = Color.White,
+                        fontSize = 128.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = "PISTE ${countdownTrack!! + 1}",
+                        color = Color.White,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         StudioFloatingScanButton(
