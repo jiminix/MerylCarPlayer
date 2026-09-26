@@ -1132,7 +1132,7 @@ private fun PlayerHeader(version: String, miniStudio: Boolean = false, onMiniStu
                 modifier = Modifier
                     .size(44.dp)
                     .background(Color(0xFF303A40), RoundedCornerShape(10.dp))
-                    .clickable(onClick = onMiniStudioBack),
+                    .clickable { onMiniStudioBack?.invoke() },
                 contentAlignment = Alignment.Center
             ) {
                 Text("‹", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
