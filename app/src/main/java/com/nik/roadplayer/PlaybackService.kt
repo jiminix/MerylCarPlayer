@@ -177,6 +177,39 @@ class PlaybackService : MediaLibraryService() {
         MerylPlayerWidget.updateAllWidgets(this, player)
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val result = super.onStartCommand(intent, flags, startId)
+        val player = mediaLibrarySession?.player
+
+        when (intent?.action) {
+            MerylPlayerWidget.ACTION_PREVIOUS -> {
+                player?.seekToPreviousMediaItem()
+            }
+
+            MerylPlayerWidget.ACTION_NEXT -> {
+                player?.seekToNextMediaItem()
+            }
+
+            MerylPlayerWidget.ACTION_PLAY_PAUSE -> {
+                player?.let {
+                    if (it.isPlaying) {
+                        it.pause()
+                    } else {
+                        if (it.playbackState == Player.STATE_IDLE) {
+                            it.prepare()
+                        }
+                        it.play()
+                    }
+                }
+            }
+
+            else -> return result
+        }
+
+        MerylPlayerWidget.updateAllWidgets(this, player)
+        return result
+    }
+
     private fun asLibraryItem(item: MediaItem): MediaItem {
         return item.buildUpon()
             .setMediaMetadata(
