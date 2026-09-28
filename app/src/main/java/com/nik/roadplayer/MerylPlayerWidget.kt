@@ -12,8 +12,6 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.widget.RemoteViews
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 
 /**
  * Widget Android compact de MerylCarPlayer.
@@ -32,69 +30,46 @@ class MerylPlayerWidget : AppWidgetProvider() {
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
 
-        // Affiche d'abord le dernier morceau memorise, puis tente de se reconnecter
-        // a la session Media3 si elle est encore active.
+        // Un AppWidgetProvider est un BroadcastReceiver : il ne doit pas binder
+        // directement un MediaSessionService. Le PlaybackService pousse lui-meme
+        // les mises a jour quand l'etat du Player change. Ici on restaure simplement
+        // le dernier morceau memorise.
         appWidgetIds.forEach { appWidgetId ->
             appWidgetManager.updateAppWidget(appWidgetId, buildRemoteViews(context, null))
-        }
-
-        val pendingResult = goAsync()
-        refreshFromSession(context) {
-            pendingResult.finish()
         }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
 
-        val command = when (intent.action) {
-            ACTION_PREVIOUS -> Command.PREVIOUS
-            ACTION_PLAY_PAUSE -> Command.PLAY_PAUSE
-            ACTION_NEXT -> Command.NEXT
+        val action = when (intent.action) {
+            ACTION_PREVIOUS,
+            ACTION_PLAY_PAUSE,
+            ACTION_NEXT -> intent.action
             else -> null
         } ?: return
 
-        val pendingResult = goAsync()
-        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-        val future = MediaController.Builder(context, token).buildAsync()
-
-        future.addListener(
-            {
-                try {
-                    val controller = future.get()
-                    when (command) {
-                        Command.PREVIOUS -> controller.seekToPreviousMediaItem()
-                        Command.NEXT -> controller.seekToNextMediaItem()
-                        Command.PLAY_PAUSE -> {
-                            if (controller.isPlaying) {
-                                controller.pause()
-                            } else {
-                                if (controller.playbackState == Player.STATE_IDLE) {
-                                    controller.prepare()
-                                }
-                                controller.play()
-                            }
-                        }
-                    }
-                    updateAllWidgets(context, controller)
-                } catch (_: Throwable) {
-                    // Conserve le dernier morceau affiche si le service n'est pas disponible.
-                    updateAllWidgets(context, null)
-                } finally {
-                    MediaController.releaseFuture(future)
-                    pendingResult.finish()
+        // Ne jamais construire de MediaController ici : AppWidgetProvider herite de
+        // BroadcastReceiver et Android interdit a ce contexte de binder un service.
+        // On envoie donc la commande au PlaybackService, qui possede deja le Player.
+        runCatching {
+            context.startService(
+                Intent(context, PlaybackService::class.java).apply {
+                    this.action = action
                 }
-            },
-            context.mainExecutor
-        )
+            )
+        }.onFailure {
+            // Le widget reste utilisable visuellement meme si Android refuse
+            // temporairement de demarrer le service en arriere-plan.
+            updateAllWidgets(context, null)
+        }
     }
 
-    private enum class Command { PREVIOUS, PLAY_PAUSE, NEXT }
 
     companion object {
-        private const val ACTION_PREVIOUS = "com.nik.roadplayer.widget.PREVIOUS"
-        private const val ACTION_PLAY_PAUSE = "com.nik.roadplayer.widget.PLAY_PAUSE"
-        private const val ACTION_NEXT = "com.nik.roadplayer.widget.NEXT"
+        internal const val ACTION_PREVIOUS = "com.nik.roadplayer.widget.PREVIOUS"
+        internal const val ACTION_PLAY_PAUSE = "com.nik.roadplayer.widget.PLAY_PAUSE"
+        internal const val ACTION_NEXT = "com.nik.roadplayer.widget.NEXT"
 
         private const val PREFS = "meryl_widget_last_track"
         private const val KEY_ARTIST = "artist"
@@ -120,24 +95,6 @@ class MerylPlayerWidget : AppWidgetProvider() {
             manager.updateAppWidget(ids, views)
         }
 
-        private fun refreshFromSession(context: Context, onFinished: () -> Unit) {
-            val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-            val future = MediaController.Builder(context, token).buildAsync()
-            future.addListener(
-                {
-                    try {
-                        updateAllWidgets(context, future.get())
-                    } catch (_: Throwable) {
-                        // Important V0.50 : ne pas effacer les infos si la session est arretee.
-                        updateAllWidgets(context, null)
-                    } finally {
-                        MediaController.releaseFuture(future)
-                        onFinished()
-                    }
-                },
-                context.mainExecutor
-            )
-        }
 
         private fun buildRemoteViews(context: Context, player: Player?): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_meryl_player)
