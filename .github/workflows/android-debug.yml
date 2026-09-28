@@ -1,4 +1,4 @@
-name: Build MerylCarPlayer APK
+name: Build Meryl Car Audio APK
 
 on:
   workflow_dispatch:
@@ -56,9 +56,12 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "Meryl Car Audio.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MerylCarPlayer-V1.14-TEST
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Meryl Car Audio
+          path: "Meryl Car Audio.apk"
           if-no-files-found: error
