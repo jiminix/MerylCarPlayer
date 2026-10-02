@@ -1855,7 +1855,7 @@ private class MerylStudioEngine(private val context: Context) {
             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
             .ifBlank { "MerylStudio" }
         val displayName = "$cleanedBase.mp3"
-        val relativePath = "Music/MerylStudio"
+        val relativePath = "Music/MerylStudio/"
         val resolver = context.contentResolver
 
         val existingUri = runCatching {
