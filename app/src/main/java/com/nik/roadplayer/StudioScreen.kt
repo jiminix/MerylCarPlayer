@@ -2,6 +2,7 @@ package com.nik.roadplayer
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -86,6 +87,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -1692,8 +1695,10 @@ private class MerylStudioEngine(private val context: Context) {
             File(projectDir, "project.json").writeText(json)
             true
         }.getOrDefault(false)
-        if (saved) rememberCurrentProject(safeName)
-        return saved
+        if (!saved) return false
+
+        rememberCurrentProject(safeName)
+        return publishProjectMp3(settings, safeName)
     }
 
     fun loadProject(name: String): Boolean {
@@ -1745,6 +1750,185 @@ private class MerylStudioEngine(private val context: Context) {
             runCatching { trackFile(index).delete() }
             runCatching { rawTempFile(index).delete() }
         }
+    }
+
+    private fun publishProjectMp3(settings: StudioMixSettings, requestedName: String): Boolean {
+        val selected = selectedTrackIndexes(settings, excludeTrack = -1)
+        if (selected.isEmpty()) return false
+
+        val maxSamples = selected.maxOfOrNull { index ->
+            StudioPcmSource.cycleSamples(
+                trackFile(index),
+                looped = index > 0 && settings.looped.getOrElse(index) { false },
+                bpm = settings.bpm
+            )
+        } ?: return false
+        if (maxSamples <= 0L) return false
+
+        val tempWav = File(projectDir, "visible_project_mix.tmp.wav")
+        val tempMp3 = File(projectDir, "visible_project_mix.tmp.mp3")
+        runCatching { tempWav.delete() }
+        runCatching { tempMp3.delete() }
+
+        val sources = selected.map { index ->
+            MixSource(
+                audio = StudioPcmSource(
+                    file = trackFile(index),
+                    looped = index > 0 && settings.looped.getOrElse(index) { false },
+                    bpm = settings.bpm,
+                    startSample = 0L
+                ),
+                volume = settings.volumes.getOrElse(index) { 1f }.coerceIn(0f, 1f)
+            )
+        }
+
+        val mixed = runCatching {
+            BufferedOutputStream(FileOutputStream(tempWav)).use { output ->
+                writeWavHeader(output, maxSamples * 2L)
+                val blockSamples = 2048
+                val sourceBuffers = sources.map { ShortArray(blockSamples) }
+                val writeBuffer = ByteArray(blockSamples * 2)
+                var processed = 0L
+
+                while (processed < maxSamples) {
+                    val count = minOf(blockSamples.toLong(), maxSamples - processed).toInt()
+                    sources.forEachIndexed { i, source ->
+                        readSamples(source, sourceBuffers[i], count)
+                    }
+
+                    var byteIndex = 0
+                    for (sampleIndex in 0 until count) {
+                        var mixedSample = 0f
+                        sources.forEachIndexed { sourceIndex, source ->
+                            mixedSample += sourceBuffers[sourceIndex][sampleIndex] * source.volume
+                        }
+                        val clipped = mixedSample.roundToInt().coerceIn(-32768, 32767)
+                        writeBuffer[byteIndex++] = (clipped and 0xFF).toByte()
+                        writeBuffer[byteIndex++] = ((clipped shr 8) and 0xFF).toByte()
+                    }
+                    output.write(writeBuffer, 0, count * 2)
+                    processed += count
+                }
+            }
+            true
+        }.getOrDefault(false)
+        sources.forEach { runCatching { it.audio.close() } }
+
+        if (!mixed || !tempWav.isFile || tempWav.length() <= WAV_HEADER_SIZE) {
+            runCatching { tempWav.delete() }
+            return false
+        }
+
+        val quote: (String) -> String = { path ->
+            "'" + path.replace("'", "'\\''") + "'"
+        }
+        val command = listOf(
+            "-y",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-i", quote(tempWav.absolutePath),
+            "-vn",
+            "-codec:a", "libmp3lame",
+            "-b:a", "192k",
+            "-ar", STUDIO_SAMPLE_RATE.toString(),
+            "-ac", "1",
+            quote(tempMp3.absolutePath)
+        ).joinToString(" ")
+
+        val encoded = runCatching {
+            val session = FFmpegKit.execute(command)
+            ReturnCode.isSuccess(session.returnCode) &&
+                tempMp3.isFile &&
+                tempMp3.length() > 0L
+        }.getOrDefault(false)
+
+        runCatching { tempWav.delete() }
+        if (!encoded) {
+            runCatching { tempMp3.delete() }
+            return false
+        }
+
+        val cleanedBase = requestedName
+            .trim()
+            .removeSuffix(".mp3")
+            .removeSuffix(".MP3")
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .ifBlank { "MerylStudio" }
+        val displayName = "$cleanedBase.mp3"
+        val relativePath = "Music/MerylStudio"
+        val resolver = context.contentResolver
+
+        val existingUri = runCatching {
+            resolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Media._ID),
+                "${MediaStore.Audio.Media.DISPLAY_NAME}=? AND ${MediaStore.Audio.Media.RELATIVE_PATH}=?",
+                arrayOf(displayName, relativePath),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+                    ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+                } else null
+            }
+        }.getOrNull()
+
+        val uri = if (existingUri != null) {
+            runCatching {
+                resolver.update(
+                    existingUri,
+                    ContentValues().apply {
+                        put(MediaStore.Audio.Media.IS_PENDING, 1)
+                        put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                    },
+                    null,
+                    null
+                )
+            }
+            existingUri
+        } else {
+            runCatching {
+                resolver.insert(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    ContentValues().apply {
+                        put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
+                        put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                        put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
+                        put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                        put(MediaStore.Audio.Media.IS_PENDING, 1)
+                    }
+                )
+            }.getOrNull()
+        } ?: run {
+            runCatching { tempMp3.delete() }
+            return false
+        }
+
+        val copied = runCatching {
+            resolver.openOutputStream(uri, "w")?.use { output ->
+                FileInputStream(tempMp3).use { input -> input.copyTo(output) }
+            } ?: error("No output stream")
+            true
+        }.getOrDefault(false)
+        runCatching { tempMp3.delete() }
+
+        if (!copied) {
+            if (existingUri == null) runCatching { resolver.delete(uri, null, null) }
+            return false
+        }
+
+        runCatching {
+            resolver.update(
+                uri,
+                ContentValues().apply {
+                    put(MediaStore.Audio.Media.IS_PENDING, 0)
+                    put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                },
+                null,
+                null
+            )
+        }
+        return true
     }
 
     fun removeLongSilences(index: Int): Long {
