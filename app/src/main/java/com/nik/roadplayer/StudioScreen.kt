@@ -510,6 +510,63 @@ fun StudioScreen(
                 }
             }
 
+            Spacer(Modifier.width(6.dp))
+
+            StudioTransportButton(
+                text = "✂",
+                enabled = recordingTrack == null &&
+                    countdownTrack == null &&
+                    !stoppingRecording &&
+                    !exporting &&
+                    !cleaningSilences &&
+                    existing[0],
+                activeColor = Color(0xFF5D466F),
+                modifier = Modifier.width(48.dp)
+            ) {
+                engine.stopPlayback()
+                playing = false
+                cleaningSilences = true
+                val autoSaveName = currentProjectName
+                val autoSaveSettings = settings()
+                scope.launch {
+                    val removedMs = withContext(Dispatchers.IO) {
+                        engine.removeLongSilences(0)
+                    }
+                    val trackInfo = withContext(Dispatchers.IO) {
+                        Triple(
+                            engine.hasTrack(0),
+                            engine.trackDurationMs(0),
+                            engine.trackPeaks(0, 96)
+                        )
+                    }
+                    existing[0] = trackInfo.first
+                    durations[0] = trackInfo.second
+                    peaks[0] = trackInfo.third
+                    playheadMs = trackInfo.second
+                    playbackStartOffset = playheadMs
+                    playbackStartedAt = 0L
+                    segmentEnds.clear()
+
+                    if (removedMs > 0L && autoSaveName.isNotBlank()) {
+                        val autoSaved = withContext(Dispatchers.IO) {
+                            engine.saveProject(autoSaveName, autoSaveSettings)
+                        }
+                        if (autoSaved) currentProjectName = engine.currentProjectName()
+                    }
+
+                    cleaningSilences = false
+                    Toast.makeText(
+                        context,
+                        when {
+                            removedMs < 0L -> "Nettoyage impossible"
+                            removedMs == 0L -> "Aucun silence long détecté"
+                            else -> "Silences supprimés : ${formatStudioDuration(removedMs)}"
+                        },
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
         }
 
         Spacer(Modifier.height(7.dp))
@@ -582,68 +639,6 @@ fun StudioScreen(
                 } else {
                     projectName = ""
                     projectDialogOpen = true
-                }
-            }
-        }
-
-        Spacer(Modifier.height(7.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center
-        ) {
-            StudioTransportButton(
-                text = if (cleaningSilences) "NETTOYAGE..." else "✂ SILENCES",
-                enabled = recordingTrack == null &&
-                    countdownTrack == null &&
-                    !stoppingRecording &&
-                    !exporting &&
-                    !cleaningSilences &&
-                    existing[0],
-                activeColor = Color(0xFF5D466F),
-                modifier = Modifier.width(142.dp)
-            ) {
-                engine.stopPlayback()
-                playing = false
-                cleaningSilences = true
-                val autoSaveName = currentProjectName
-                val autoSaveSettings = settings()
-                scope.launch {
-                    val removedMs = withContext(Dispatchers.IO) {
-                        engine.removeLongSilences(0)
-                    }
-                    val trackInfo = withContext(Dispatchers.IO) {
-                        Triple(
-                            engine.hasTrack(0),
-                            engine.trackDurationMs(0),
-                            engine.trackPeaks(0, 96)
-                        )
-                    }
-                    existing[0] = trackInfo.first
-                    durations[0] = trackInfo.second
-                    peaks[0] = trackInfo.third
-                    playheadMs = trackInfo.second
-                    playbackStartOffset = playheadMs
-                    playbackStartedAt = 0L
-                    segmentEnds.clear()
-
-                    if (removedMs > 0L && autoSaveName.isNotBlank()) {
-                        val autoSaved = withContext(Dispatchers.IO) {
-                            engine.saveProject(autoSaveName, autoSaveSettings)
-                        }
-                        if (autoSaved) currentProjectName = engine.currentProjectName()
-                    }
-
-                    cleaningSilences = false
-                    Toast.makeText(
-                        context,
-                        when {
-                            removedMs < 0L -> "Nettoyage impossible"
-                            removedMs == 0L -> "Aucun silence long détecté"
-                            else -> "Silences supprimés : ${formatStudioDuration(removedMs)}"
-                        },
-                        Toast.LENGTH_LONG
-                    ).show()
                 }
             }
         }
