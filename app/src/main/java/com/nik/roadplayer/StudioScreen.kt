@@ -89,6 +89,7 @@ import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private const val STUDIO_TRACK_COUNT = 3
 private const val STUDIO_SAMPLE_RATE = 44100
@@ -148,6 +149,8 @@ fun StudioScreen(
     var projectDialogOpen by remember { mutableStateOf(false) }
     var projectName by remember { mutableStateOf("") }
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
+    var cleaningSilences by remember { mutableStateOf(false) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
 
     val projectNameVoiceLauncher = rememberLauncherForActivityResult(
@@ -328,6 +331,18 @@ fun StudioScreen(
                 .padding(bottom = 64.dp)
         ) {
 
+        Text(
+            text = if (currentProjectName.isBlank()) "FICHIER : —" else "FICHIER : $currentProjectName",
+            color = Color(0xFF79E6BD),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 3.dp, vertical = 2.dp)
+        )
+
+        Spacer(Modifier.height(5.dp))
+
         StudioPrimaryTrack(
             hasAudio = existing[0],
             durationMs = durations[0],
@@ -471,6 +486,22 @@ fun StudioScreen(
                             }
                             playbackStartOffset = playheadMs
                             playbackStartedAt = 0L
+
+                            val autoSaveName = currentProjectName
+                            if (autoSaveName.isNotBlank()) {
+                                val autoSaveSettings = settings()
+                                val autoSaved = withContext(Dispatchers.IO) {
+                                    engine.saveProject(autoSaveName, autoSaveSettings)
+                                }
+                                if (autoSaved) {
+                                    currentProjectName = engine.currentProjectName()
+                                    Toast.makeText(
+                                        context,
+                                        "Mise à jour auto : $currentProjectName",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
                         }
                     }
                 } else {
@@ -493,9 +524,29 @@ fun StudioScreen(
                 activeColor = Color(0xFF355D48),
                 modifier = Modifier.width(96.dp)
             ) {
-                projectName = "Projet_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
-                projectList = engine.listProjects()
-                projectDialogOpen = true
+                if (currentProjectName.isNotBlank()) {
+                    val nameToUpdate = currentProjectName
+                    val currentSettings = settings()
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) {
+                            engine.saveProject(nameToUpdate, currentSettings)
+                        }
+                        if (saved) {
+                            currentProjectName = engine.currentProjectName()
+                            Toast.makeText(
+                                context,
+                                "Projet mis à jour : $currentProjectName",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(context, "Sauvegarde impossible", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    projectName = "Projet_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
+                    projectList = engine.listProjects()
+                    projectDialogOpen = true
+                }
             }
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
@@ -531,6 +582,68 @@ fun StudioScreen(
                 } else {
                     projectName = ""
                     projectDialogOpen = true
+                }
+            }
+        }
+
+        Spacer(Modifier.height(7.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            StudioTransportButton(
+                text = if (cleaningSilences) "NETTOYAGE..." else "✂ SILENCES",
+                enabled = recordingTrack == null &&
+                    countdownTrack == null &&
+                    !stoppingRecording &&
+                    !exporting &&
+                    !cleaningSilences &&
+                    existing[0],
+                activeColor = Color(0xFF5D466F),
+                modifier = Modifier.width(142.dp)
+            ) {
+                engine.stopPlayback()
+                playing = false
+                cleaningSilences = true
+                val autoSaveName = currentProjectName
+                val autoSaveSettings = settings()
+                scope.launch {
+                    val removedMs = withContext(Dispatchers.IO) {
+                        engine.removeLongSilences(0)
+                    }
+                    val trackInfo = withContext(Dispatchers.IO) {
+                        Triple(
+                            engine.hasTrack(0),
+                            engine.trackDurationMs(0),
+                            engine.trackPeaks(0, 96)
+                        )
+                    }
+                    existing[0] = trackInfo.first
+                    durations[0] = trackInfo.second
+                    peaks[0] = trackInfo.third
+                    playheadMs = trackInfo.second
+                    playbackStartOffset = playheadMs
+                    playbackStartedAt = 0L
+                    segmentEnds.clear()
+
+                    if (removedMs > 0L && autoSaveName.isNotBlank()) {
+                        val autoSaved = withContext(Dispatchers.IO) {
+                            engine.saveProject(autoSaveName, autoSaveSettings)
+                        }
+                        if (autoSaved) currentProjectName = engine.currentProjectName()
+                    }
+
+                    cleaningSilences = false
+                    Toast.makeText(
+                        context,
+                        when {
+                            removedMs < 0L -> "Nettoyage impossible"
+                            removedMs == 0L -> "Aucun silence long détecté"
+                            else -> "Silences supprimés : ${formatStudioDuration(removedMs)}"
+                        },
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -685,6 +798,8 @@ fun StudioScreen(
                                         engine.stopPlayback()
                                         playing = false
                                         if (engine.loadProject(name)) {
+                                            currentProjectName = engine.currentProjectName()
+                                            segmentEnds.clear()
                                             repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
                                             val loaded = engine.loadProjectSettings()
                                             loaded?.let { s ->
@@ -712,7 +827,12 @@ fun StudioScreen(
                     TextButton(onClick = {
                         val name = projectName.trim()
                         if (name.isNotEmpty() && engine.saveProject(name, settings())) {
-                            Toast.makeText(context, "Projet enregistré : $name", Toast.LENGTH_SHORT).show()
+                            currentProjectName = engine.currentProjectName()
+                            Toast.makeText(
+                                context,
+                                "Projet enregistré : $currentProjectName",
+                                Toast.LENGTH_SHORT
+                            ).show()
                             projectDialogOpen = false
                         }
                     }) { Text("ENREGISTRER") }
@@ -1324,6 +1444,7 @@ private fun formatStudioDuration(ms: Long): String {
 private class MerylStudioEngine(private val context: Context) {
     private val projectDir = File(context.filesDir, "meryl_studio/current_project").apply { mkdirs() }
     private val savedProjectsDir = File(context.filesDir, "meryl_studio/saved_projects").apply { mkdirs() }
+    private val studioPrefs = context.getSharedPreferences("meryl_studio", Context.MODE_PRIVATE)
     private val recording = AtomicBoolean(false)
     private val playbackGeneration = AtomicInteger(0)
     private var currentRecorder: AudioRecord? = null
@@ -1332,6 +1453,13 @@ private class MerylStudioEngine(private val context: Context) {
 
     private fun trackFile(index: Int): File = File(projectDir, "track_" + (index + 1) + ".wav")
     private fun rawTempFile(index: Int): File = File(projectDir, "track_" + (index + 1) + ".raw.tmp")
+
+    fun currentProjectName(): String =
+        studioPrefs.getString("current_project_name", "").orEmpty()
+
+    private fun rememberCurrentProject(name: String) {
+        studioPrefs.edit().putString("current_project_name", name).apply()
+    }
 
     fun hasTrack(index: Int): Boolean = trackFile(index).let { it.isFile && it.length() > WAV_HEADER_SIZE }
 
@@ -1551,7 +1679,7 @@ private class MerylStudioEngine(private val context: Context) {
             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
             .ifBlank { "Projet" }
         val destination = File(savedProjectsDir, safeName)
-        return runCatching {
+        val saved = runCatching {
             if (destination.exists()) destination.deleteRecursively()
             destination.mkdirs()
             repeat(STUDIO_TRACK_COUNT) { index ->
@@ -1564,26 +1692,32 @@ private class MerylStudioEngine(private val context: Context) {
                 put("muted", settings.muted.joinToString(","))
                 put("solo", settings.solo.joinToString(","))
                 put("looped", settings.looped.joinToString(","))
-            }
-            File(destination, "project.json").writeText(json.toString())
+            }.toString()
+            File(destination, "project.json").writeText(json)
+            File(projectDir, "project.json").writeText(json)
             true
         }.getOrDefault(false)
+        if (saved) rememberCurrentProject(safeName)
+        return saved
     }
 
     fun loadProject(name: String): Boolean {
         if (recording.get()) return false
         val sourceDir = File(savedProjectsDir, name)
         if (!sourceDir.isDirectory) return false
-        return runCatching {
+        val loaded = runCatching {
             stopPlayback()
             deleteAllTracks()
             repeat(STUDIO_TRACK_COUNT) { index ->
                 val source = File(sourceDir, "track_" + (index + 1) + ".wav")
                 if (source.isFile) source.copyTo(trackFile(index), overwrite = true)
             }
-            File(sourceDir, "project.json").takeIf { it.isFile }?.copyTo(File(projectDir, "project.json"), overwrite = true)
+            File(sourceDir, "project.json").takeIf { it.isFile }
+                ?.copyTo(File(projectDir, "project.json"), overwrite = true)
             true
         }.getOrDefault(false)
+        if (loaded) rememberCurrentProject(name)
+        return loaded
     }
 
     fun loadProjectSettings(): StudioMixSettings? {
@@ -1615,6 +1749,124 @@ private class MerylStudioEngine(private val context: Context) {
         repeat(STUDIO_TRACK_COUNT) { index ->
             runCatching { trackFile(index).delete() }
             runCatching { rawTempFile(index).delete() }
+        }
+    }
+
+    fun removeLongSilences(index: Int): Long {
+        if (recording.get() || index !in 0 until STUDIO_TRACK_COUNT) return -1L
+        val source = trackFile(index)
+        if (!source.isFile || source.length() <= WAV_HEADER_SIZE) return -1L
+
+        stopPlayback()
+
+        val tempRaw = File(projectDir, "track_" + (index + 1) + ".silence.tmp.raw")
+        runCatching { tempRaw.delete() }
+
+        val frameSamples = (STUDIO_SAMPLE_RATE / 50).coerceAtLeast(1) // 20 ms
+        val frameBytes = frameSamples * 2
+        val minSilentFrames = 25 // 500 ms minimum
+        val keepEdgeFrames = 5   // keep 100 ms at each side of a removed gap
+        val rmsThreshold = 420.0
+
+        var removedBytes = 0L
+        var longSilence = false
+        val pending = mutableListOf<ByteArray>()
+        val tail = mutableListOf<ByteArray>()
+
+        val ok = runCatching {
+            BufferedInputStream(FileInputStream(source)).use { input ->
+                skipFully(input, WAV_HEADER_SIZE.toLong())
+                BufferedOutputStream(FileOutputStream(tempRaw)).use { output ->
+                    val frame = ByteArray(frameBytes)
+
+                    fun writeFrames(frames: List<ByteArray>) {
+                        frames.forEach { output.write(it) }
+                    }
+
+                    fun isSilent(bytes: ByteArray): Boolean {
+                        var i = 0
+                        var count = 0
+                        var sumSquares = 0.0
+                        while (i + 1 < bytes.size) {
+                            val lo = bytes[i].toInt() and 0xFF
+                            val hi = bytes[i + 1].toInt()
+                            val sample = ((hi shl 8) or lo).toShort().toInt()
+                            sumSquares += sample.toDouble() * sample.toDouble()
+                            count++
+                            i += 2
+                        }
+                        if (count == 0) return true
+                        return sqrt(sumSquares / count.toDouble()) < rmsThreshold
+                    }
+
+                    while (true) {
+                        var read = 0
+                        while (read < frame.size) {
+                            val n = input.read(frame, read, frame.size - read)
+                            if (n <= 0) break
+                            read += n
+                        }
+                        if (read <= 0) break
+                        val evenRead = read - (read % 2)
+                        if (evenRead <= 0) break
+                        val chunk = frame.copyOf(evenRead)
+
+                        if (isSilent(chunk)) {
+                            if (!longSilence) {
+                                pending.add(chunk)
+                                if (pending.size >= minSilentFrames) {
+                                    longSilence = true
+                                    val startKeep = minOf(keepEdgeFrames, pending.size)
+                                    val tailStart = maxOf(startKeep, pending.size - keepEdgeFrames)
+
+                                    for (i in 0 until startKeep) output.write(pending[i])
+                                    for (i in startKeep until tailStart) {
+                                        removedBytes += pending[i].size.toLong()
+                                    }
+                                    for (i in tailStart until pending.size) tail.add(pending[i])
+                                    pending.clear()
+                                }
+                            } else {
+                                tail.add(chunk)
+                                while (tail.size > keepEdgeFrames) {
+                                    removedBytes += tail.removeAt(0).size.toLong()
+                                }
+                            }
+                        } else {
+                            if (longSilence) {
+                                writeFrames(tail)
+                                tail.clear()
+                                longSilence = false
+                            } else {
+                                writeFrames(pending)
+                                pending.clear()
+                            }
+                            output.write(chunk)
+                        }
+
+                        if (read < frame.size) break
+                    }
+
+                    if (longSilence) writeFrames(tail) else writeFrames(pending)
+                }
+            }
+            true
+        }.getOrDefault(false)
+
+        if (!ok) {
+            runCatching { tempRaw.delete() }
+            return -1L
+        }
+        if (removedBytes <= 0L) {
+            runCatching { tempRaw.delete() }
+            return 0L
+        }
+
+        return runCatching {
+            writeWavFromRaw(tempRaw, source)
+            removedBytes / 2L * 1000L / STUDIO_SAMPLE_RATE
+        }.getOrElse { -1L }.also {
+            runCatching { tempRaw.delete() }
         }
     }
 
