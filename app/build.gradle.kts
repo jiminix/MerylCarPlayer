@@ -12,8 +12,8 @@ android {
         applicationId = "com.nik.roadplayer.test"
         minSdk = 29
         targetSdk = 36
-        versionCode = 116
-        versionName = "1.16"
+        versionCode = 117
+        versionName = "1.17"
     }
 
     signingConfigs {
@@ -60,4 +60,6 @@ dependencies {
     implementation("androidx.media3:media3-session:1.11.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
 }
