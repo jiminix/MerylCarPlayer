@@ -6,12 +6,15 @@
     android:background="@drawable/widget_meryl_background"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="6dp">
+    android:paddingStart="6dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="6dp"
+    android:paddingBottom="4dp">
 
     <ImageView
         android:id="@+id/widget_artwork"
-        android:layout_width="72dp"
-        android:layout_height="72dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:background="@drawable/widget_meryl_artwork_background"
         android:contentDescription="@string/widget_artwork"
         android:scaleType="centerCrop"
@@ -20,7 +23,7 @@
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_marginStart="9dp"
+        android:layout_marginStart="7dp"
         android:layout_weight="1"
         android:gravity="center_vertical"
         android:orientation="vertical">
@@ -29,80 +32,68 @@
             android:id="@+id/widget_artist"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:ellipsize="marquee"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:marqueeRepeatLimit="marquee_forever"
-            android:singleLine="true"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:text="Aucun artiste"
             android:textColor="#FFFFFFFF"
-            android:textSize="13sp"
+            android:textSize="11sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_album"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="1dp"
-            android:ellipsize="marquee"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:marqueeRepeatLimit="marquee_forever"
-            android:singleLine="true"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:text="Aucun album"
             android:textColor="#FFFFDE59"
-            android:textSize="10sp" />
+            android:textSize="9sp" />
 
         <TextView
             android:id="@+id/widget_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="1dp"
-            android:ellipsize="marquee"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:marqueeRepeatLimit="marquee_forever"
-            android:singleLine="true"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:text="Aucune lecture"
             android:textColor="#FFE5E9EC"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
+    </LinearLayout>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="28dp"
-            android:layout_marginTop="1dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+    <LinearLayout
+        android:layout_width="96dp"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="horizontal">
 
-            <ImageButton
-                android:id="@+id/widget_previous"
-                android:layout_width="38dp"
-                android:layout_height="28dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="@string/widget_previous"
-                android:padding="5dp"
-                android:src="@android:drawable/ic_media_previous"
-                android:tint="#FFFFDE59" />
+        <ImageButton
+            android:id="@+id/widget_previous"
+            android:layout_width="32dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/widget_previous"
+            android:padding="6dp"
+            android:src="@android:drawable/ic_media_previous"
+            android:tint="#FFFFDE59" />
 
-            <ImageButton
-                android:id="@+id/widget_play_pause"
-                android:layout_width="38dp"
-                android:layout_height="28dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="@string/widget_play_pause"
-                android:padding="5dp"
-                android:src="@android:drawable/ic_media_play"
-                android:tint="#FFFFDE59" />
+        <ImageButton
+            android:id="@+id/widget_play_pause"
+            android:layout_width="32dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/widget_play_pause"
+            android:padding="6dp"
+            android:src="@android:drawable/ic_media_play"
+            android:tint="#FFFFDE59" />
 
-            <ImageButton
-                android:id="@+id/widget_next"
-                android:layout_width="38dp"
-                android:layout_height="28dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="@string/widget_next"
-                android:padding="5dp"
-                android:src="@android:drawable/ic_media_next"
-                android:tint="#FFFFDE59" />
-        </LinearLayout>
+        <ImageButton
+            android:id="@+id/widget_next"
+            android:layout_width="32dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/widget_next"
+            android:padding="6dp"
+            android:src="@android:drawable/ic_media_next"
+            android:tint="#FFFFDE59" />
     </LinearLayout>
 </LinearLayout>
