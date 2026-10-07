@@ -190,7 +190,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V0.74 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V${BuildConfig.VERSION_NAME} — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -249,7 +249,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.09")
+                PlayerHeader(version = "V${BuildConfig.VERSION_NAME}")
                 StartupLoadingBar(progress = startupProgress)
             }
         }
@@ -669,7 +669,6 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                                 }
 
                                 coroutineScope.launch {
-                                    val artwork = repository.albumPlaybackArtworkBytes(album)
                                     val items = album.tracks.map { track ->
                                         MediaItem.Builder()
                                             .setUri(track.uri)
@@ -686,14 +685,6 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                                                     .setComposer(track.composer.takeIf { it.isNotBlank() })
                                                     .setDurationMs(track.durationMs.takeIf { it > 0L })
                                                     .setTrackNumber(track.trackNumber.takeIf { it > 0 })
-                                                    .apply {
-                                                        if (artwork != null) {
-                                                            setArtworkData(
-                                                                artwork,
-                                                                MediaMetadata.PICTURE_TYPE_FRONT_COVER
-                                                            )
-                                                        }
-                                                    }
                                                     .build()
                                             )
                                             .build()
