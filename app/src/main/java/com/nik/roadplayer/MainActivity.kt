@@ -97,6 +97,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -171,6 +173,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         if (diagnosticFile.exists()) {
+            // Une mise à jour APK conserve filesDir. Un ancien rapport de crash ne doit
+            // donc jamais bloquer la nouvelle version de l'application.
+            val lastUpdateTime = runCatching {
+                packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+            }.getOrDefault(0L)
+            if (lastUpdateTime > 0L && diagnosticFile.lastModified() < lastUpdateTime) {
+                diagnosticFile.delete()
+            }
+        }
+
+        if (diagnosticFile.exists()) {
             showCrashDiagnostic(diagnosticFile.readText())
             return
         }
@@ -189,12 +202,31 @@ class MainActivity : ComponentActivity() {
             setPadding(24, 24, 24, 24)
             setBackgroundColor(android.graphics.Color.rgb(32, 40, 48))
         }
+        // Android 15/16 dessine l'application sous les barres système.
+        // Garder les boutons de diagnostic au-dessus de la barre de navigation Samsung.
+        ViewCompat.setOnApplyWindowInsetsListener(layout) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(
+                24 + bars.left,
+                24 + bars.top,
+                24 + bars.right,
+                24 + bars.bottom
+            )
+            insets
+        }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V1.25 — Diagnostic du plantage"
+            text = "MerylCarPlayer TEST V1.26 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
         layout.addView(heading)
+        layout.addView(android.widget.Button(this).apply {
+            text = "OUVRIR L'APPLICATION"
+            setOnClickListener {
+                diagnosticFile.delete()
+                recreate()
+            }
+        })
         val details = android.widget.TextView(this).apply {
             text = report
             textSize = 13f
@@ -249,7 +281,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.25")
+                PlayerHeader(version = "V1.26")
                 StartupLoadingBar(progress = startupProgress)
             }
         }
@@ -567,7 +599,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V1.25", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
+            PlayerHeader(version = "V1.26", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
 
         if (studioOpen) {
             StudioScreen(
