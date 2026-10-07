@@ -669,7 +669,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                                 }
 
                                 coroutineScope.launch {
-                                    val artwork = repository.albumArtworkBytes(album)
+                                    val artwork = repository.albumPlaybackArtworkBytes(album)
                                     val items = album.tracks.map { track ->
                                         MediaItem.Builder()
                                             .setUri(track.uri)
