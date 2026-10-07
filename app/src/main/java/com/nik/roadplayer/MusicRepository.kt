@@ -1575,6 +1575,54 @@ class MusicRepository(private val context: Context) {
         output.toByteArray()
     }
 
+    /**
+     * Pochette légère réservée aux MediaItem/MediaSession Android.
+     *
+     * Ne jamais injecter la pochette originale dans chaque piste de la file :
+     * Media3 sérialise puis clone artworkData lors du passage Controller -> Session.
+     * Avec plusieurs dizaines de titres, une image de plusieurs centaines de Ko
+     * peut donc saturer rapidement le heap de l'application.
+     */
+    suspend fun albumPlaybackArtworkBytes(
+        album: Album,
+        maxSizePx: Int = 320,
+        jpegQuality: Int = 78
+    ): ByteArray? = withContext(Dispatchers.IO) {
+        val source = albumArtworkBitmap(
+            album = album,
+            sizePx = maxSizePx,
+            allowNetwork = false
+        ) ?: return@withContext null
+
+        val longestSide = maxOf(source.width, source.height).coerceAtLeast(1)
+        val scaled = if (longestSide > maxSizePx) {
+            val ratio = maxSizePx.toFloat() / longestSide.toFloat()
+            val width = (source.width * ratio).toInt().coerceAtLeast(1)
+            val height = (source.height * ratio).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(source, width, height, true)
+        } else {
+            source
+        }
+
+        try {
+            ByteArrayOutputStream().use { output ->
+                if (!scaled.compress(
+                        Bitmap.CompressFormat.JPEG,
+                        jpegQuality.coerceIn(60, 85),
+                        output
+                    )
+                ) {
+                    return@withContext null
+                }
+                output.toByteArray()
+            }
+        } finally {
+            if (scaled !== source && !scaled.isRecycled) {
+                scaled.recycle()
+            }
+        }
+    }
+
     suspend fun saveCustomArtwork(album: Album, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
         if (bytes.isEmpty() || decodeBitmap(bytes, 64) == null) return@withContext false
         val success = writeArtworkFile(customCoverFile(album), bytes)
