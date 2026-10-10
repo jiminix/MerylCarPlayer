@@ -808,10 +808,18 @@ fun StudioScreen(
                 } else {
                     Column {
                         projectList.forEach { name ->
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .background(Color(0xFFFFF4CC), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                             Text(
                                 text = studioDisplayProjectName(name),
-                                color = Color.White,
+                                color = Color(0xFF17243A),
+                                fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
@@ -839,7 +847,7 @@ fun StudioScreen(
                                     .padding(vertical = 10.dp)
                             )
                             TextButton(onClick = { projectToDelete = name }) {
-                                Text("×", color = Color(0xFFFF7777), fontSize = 24.sp)
+                                Text("×", color = Color(0xFFB00020), fontWeight = FontWeight.Bold, fontSize = 28.sp)
                             }
                             }
                         }
@@ -1459,12 +1467,27 @@ private fun StudioTransportButton(
 }
 
 private fun studioDisplayProjectName(name: String): String {
-    val iso = Regex("^(?:Projet_)?(\\d{4})(\\d{2})(\\d{2})(.*)$").matchEntire(name)
-    if (iso != null) return "${iso.groupValues[3]}/${iso.groupValues[2]}/${iso.groupValues[1]}${iso.groupValues[4]}"
-    val year4 = Regex("^(\\d{2})-(\\d{2})-(\\d{4})(.*)$").matchEntire(name)
-    if (year4 != null) return "${year4.groupValues[1]}/${year4.groupValues[2]}/${year4.groupValues[3]}${year4.groupValues[4]}"
-    val year2 = Regex("^(\\d{2})-(\\d{2})-(\\d{2})(.*)$").matchEntire(name)
-    if (year2 != null) return "${year2.groupValues[1]}/${year2.groupValues[2]}/${year2.groupValues[3]}${year2.groupValues[4]}"
+    // Only change the visible label; keep the original folder name for loading/deleting.
+    val yearFirst = Regex("""(?:19|20)\d{2}[-_]?\d{2}[-_]?\d{2}""").find(name)
+    if (yearFirst != null) {
+        val digits = yearFirst.value.filter { it.isDigit() }
+        val year = digits.substring(0, 4)
+        val month = digits.substring(4, 6)
+        val day = digits.substring(6, 8)
+        if (month.toIntOrNull() in 1..12 && day.toIntOrNull() in 1..31) {
+            val rest = (name.substring(0, yearFirst.range.first) +
+                name.substring(yearFirst.range.last + 1))
+                .trim('_', '-', ' ')
+                .ifBlank { "Projet" }
+            return "$day/$month/$year · $rest"
+        }
+    }
+    val dayFirst = Regex("""^(\d{2})[-_/](\d{2})[-_/](\d{2}|\d{4})(.*)$""").matchEntire(name)
+    if (dayFirst != null) {
+        val (day, month, shortYear, suffix) = dayFirst.destructured
+        val year = if (shortYear.length == 2) "20$shortYear" else shortYear
+        return "$day/$month/$year · ${suffix.trim('_', '-', ' ').ifBlank { "Projet" }}"
+    }
     return name
 }
 
