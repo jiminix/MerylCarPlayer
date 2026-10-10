@@ -2,6 +2,8 @@ package com.nik.roadplayer
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingSimpleBasePlayer
@@ -34,6 +36,8 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private var mediaLibrarySession: MediaLibrarySession? = null
+    private val statsHandler = Handler(Looper.getMainLooper())
+    private var statsRunnable: Runnable? = null
 
     private val rootItem: MediaItem by lazy {
         MediaItem.Builder()
@@ -174,6 +178,13 @@ class PlaybackService : MediaLibraryService() {
             }
         })
 
+        val stats = ListeningStatistics(this)
+        statsRunnable = object : Runnable {
+            override fun run() {
+                stats.tick(exoPlayer)
+                statsHandler.postDelayed(this, 10000L)
+            }
+        }.also { statsHandler.post(it) }
         MerylPlayerWidget.updateAllWidgets(this, player)
     }
 
@@ -226,6 +237,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        statsRunnable?.let { statsHandler.removeCallbacks(it) }
         mediaLibrarySession?.run {
             MerylPlayerWidget.updateAllWidgets(this@PlaybackService, null)
             player.release()
