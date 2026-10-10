@@ -846,7 +846,13 @@ fun StudioScreen(
                         }
                     }
                 } else {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(430.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text("${projectList.size} projet(s) enregistré(s) — faites défiler la liste", color = Color(0xFF333333), fontSize = 12.sp)
                         projectList.forEach { name ->
                             Row(
                                 modifier = Modifier
@@ -1508,7 +1514,13 @@ private fun StudioTransportButton(
 }
 
 private fun studioDisplayProjectName(name: String): String {
-    // Only change the visible label; keep the original folder name for loading/deleting.
+    // Display friendly dates without changing stored folder names.
+    val newStyle = Regex("""^(\d{2})[-_](\d{2})[-_](\d{2}|\d{4})[_-](\d{6})[_-](.*)$""").matchEntire(name)
+    if (newStyle != null) {
+        val (day, month, yr, time, label) = newStyle.destructured
+        val year = if (yr.length == 2) "20$yr" else yr
+        return "$day/$month/$year · ${time.substring(0,2)}:${time.substring(2,4)}:${time.substring(4,6)} · $label"
+    }
     val yearFirst = Regex("""(?:19|20)\d{2}[-_]?\d{2}[-_]?\d{2}""").find(name)
     if (yearFirst != null) {
         val digits = yearFirst.value.filter { it.isDigit() }
@@ -1517,9 +1529,7 @@ private fun studioDisplayProjectName(name: String): String {
         val day = digits.substring(6, 8)
         if (month.toIntOrNull() in 1..12 && day.toIntOrNull() in 1..31) {
             val rest = (name.substring(0, yearFirst.range.first) +
-                name.substring(yearFirst.range.last + 1))
-                .trim('_', '-', ' ')
-                .ifBlank { "Projet" }
+                name.substring(yearFirst.range.last + 1)).trim('_', '-', ' ').ifBlank { "Projet" }
             return "$day/$month/$year · $rest"
         }
     }
@@ -1827,8 +1837,8 @@ private class MerylStudioEngine(private val context: Context) {
     fun listProjects(): List<String> =
         savedProjectsDir.listFiles()
             ?.filter { it.isDirectory }
+            ?.sortedWith(compareByDescending<File> { it.lastModified() }.thenByDescending { it.name })
             ?.map { it.name }
-            ?.sortedDescending()
             ?: emptyList()
 
     fun saveProject(requestedName: String, settings: StudioMixSettings): Boolean {
