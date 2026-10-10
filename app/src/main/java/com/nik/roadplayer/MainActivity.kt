@@ -1935,6 +1935,7 @@ private fun LibrarySortSelector(
                 )
             }
         }
+    }
 
     if (showYoutubePlaylists) {
         MerylYoutubePlaylistDialog(onDismiss = { showYoutubePlaylists = false })
