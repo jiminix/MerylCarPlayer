@@ -1829,6 +1829,7 @@ private fun LibrarySortSelector(
     val context = LocalContext.current
     val homeSelected = mode == "artist"
     val genreSelected = mode == "genre"
+    var showYoutubePlaylists by remember { mutableStateOf(false) }
 
     Row(
         modifier = modifier,
@@ -1915,18 +1916,7 @@ private fun LibrarySortSelector(
                 .size(38.dp)
                 .clip(RoundedCornerShape(11.dp))
                 .background(if (enabled) Color(0xFFE62117) else Color(0xFF4B1A18))
-                .clickable(enabled = enabled) {
-                    val playlistsUri = Uri.parse("https://www.youtube.com/feed/playlists")
-                    val youtubeIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
-                        setPackage("com.google.android.youtube")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    val fallbackIntent = Intent(Intent.ACTION_VIEW, playlistsUri).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    runCatching { context.startActivity(youtubeIntent) }
-                        .onFailure { runCatching { context.startActivity(fallbackIntent) } }
-                },
+                .clickable(enabled = enabled) { showYoutubePlaylists = true },
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -1946,6 +1936,83 @@ private fun LibrarySortSelector(
             }
         }
 
+    if (showYoutubePlaylists) {
+        MerylYoutubePlaylistDialog(onDismiss = { showYoutubePlaylists = false })
+    }
+}
+
+private data class MerylYoutubeChoice(val label: String, val videoId: String, val url: String)
+
+private val MerylYoutubeChoices = listOf(
+    MerylYoutubeChoice("Playlist 1", "n0R5uUEjjCk", "https://www.youtube.com/watch?v=n0R5uUEjjCk&list=PLGD2K_nU7yV1RaomyjDJ6S8w9HHCpJmbi"),
+    MerylYoutubeChoice("Playlist 2", "u3z2lIeP82s", "https://www.youtube.com/watch?v=u3z2lIeP82s&list=PLGD2K_nU7yV1S7Z36Q1CK7zANrbzDy9y1"),
+    MerylYoutubeChoice("Radio YouTube", "k_lYcTxncNg", "https://www.youtube.com/watch?v=k_lYcTxncNg&list=RDk_lYcTxncNg&start_radio=1"),
+    MerylYoutubeChoice("Playlist 3", "tSsiS-v6_6M", "https://www.youtube.com/watch?v=tSsiS-v6_6M&list=PLGD2K_nU7yV34OwQ1ENSadAKVlf1dAy7A")
+)
+
+@Composable
+private fun MerylYoutubePlaylistDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF171717))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("PLAYLISTS MERYL MARQUES", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            MerylYoutubeChoices.forEach { choice ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF292929))
+                        .clickable {
+                            val uri = Uri.parse(choice.url)
+                            val appIntent = Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.youtube")
+                            val browserIntent = Intent(Intent.ACTION_VIEW, uri)
+                            runCatching { context.startActivity(appIntent) }
+                                .onFailure { runCatching { context.startActivity(browserIntent) } }
+                            onDismiss()
+                        }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val thumbnail by produceState<Bitmap?>(initialValue = null, choice.videoId) {
+                        value = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val connection = java.net.URL("https://img.youtube.com/vi/${choice.videoId}/mqdefault.jpg").openConnection()
+                                connection.connectTimeout = 5000
+                                connection.readTimeout = 5000
+                                connection.getInputStream().use { BitmapFactory.decodeStream(it) }
+                            }.getOrNull()
+                        }
+                    }
+                    Box(
+                        modifier = Modifier.size(width = 112.dp, height = 63.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF454545)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (thumbnail != null) {
+                            Image(
+                                bitmap = thumbnail!!.asImageBitmap(),
+                                contentDescription = "Miniature ${choice.label}",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text("▶", color = Color.White, fontSize = 22.sp)
+                        }
+                    }
+                    Text(choice.label, color = Color.White, fontSize = 15.sp)
+                }
+            }
+            TextButton(onClick = onDismiss) { Text("Fermer", color = Color.White) }
+        }
     }
 }
 
