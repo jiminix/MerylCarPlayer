@@ -108,6 +108,7 @@ fun ListeningStatisticsDialog(onDismiss: () -> Unit) {
                             )
                         }
                 }
+                StudioRecordingJournalSection()
             }
         },
         confirmButton = {
