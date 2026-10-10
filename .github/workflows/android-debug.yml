@@ -3,7 +3,7 @@ name: Build Meryl Car Audio APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, fix/studio-save-mediastore ]
+    branches: [ main, fix/studio-save-mediastore, restore/studio-v139-youtube ]
 
 jobs:
   build:
