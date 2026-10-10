@@ -30,6 +30,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -153,10 +155,27 @@ fun StudioScreen(
     var projectName by remember { mutableStateOf("") }
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
     var projectToDelete by remember { mutableStateOf<String?>(null) }
+    var projectActions by remember { mutableStateOf<String?>(null) }
+    var renameProjectName by remember { mutableStateOf<String?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var projectToShare by remember { mutableStateOf<String?>(null) }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
     var projectBusy by remember { mutableStateOf(false) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
+
+    val driveExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val name = projectToShare
+        projectToShare = null
+        if (uri != null && name != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    engine.exportProjectZip(name, uri)
+                }
+                Toast.makeText(context, if (ok) "Projet exporté : vérifie Google Drive" else "Export impossible", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     val projectNameVoiceLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -787,6 +806,50 @@ fun StudioScreen(
 
     }
 
+    projectActions?.let { name ->
+        AlertDialog(
+            onDismissRequest = { projectActions = null },
+            title = { Text(studioDisplayProjectName(name)) },
+            text = { Text("Que veux-tu faire avec cet enregistrement ?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    projectActions = null
+                    renameText = name
+                    renameProjectName = name
+                }) { Text("RENOMMER") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    projectActions = null
+                    projectToShare = name
+                    driveExportLauncher.launch("$name.zip")
+                }) { Text("ENVOYER SUR DRIVE") }
+            }
+        )
+    }
+
+    renameProjectName?.let { oldName ->
+        AlertDialog(
+            onDismissRequest = { renameProjectName = null },
+            title = { Text("Renommer le projet") },
+            text = {
+                OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true, label = { Text("Nouveau nom") })
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val renamed = engine.renameSavedProject(oldName, renameText)
+                    if (renamed != null) {
+                        if (currentProjectName == oldName) currentProjectName = renamed
+                        projectList = engine.listProjects()
+                        Toast.makeText(context, "Projet renommé : $renamed", Toast.LENGTH_SHORT).show()
+                        renameProjectName = null
+                    } else Toast.makeText(context, "Nom déjà utilisé ou invalide", Toast.LENGTH_LONG).show()
+                }) { Text("VALIDER") }
+            },
+            dismissButton = { TextButton(onClick = { renameProjectName = null }) { Text("ANNULER") } }
+        )
+    }
+
     projectToDelete?.let { name ->
         AlertDialog(
             onDismissRequest = { projectToDelete = null },
@@ -868,7 +931,9 @@ fun StudioScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable {
+                                    .combinedClickable(
+                                        onLongClick = { projectActions = name },
+                                        onClick = {
                                         engine.stopPlayback()
                                         playing = false
                                         if (engine.loadProject(name)) {
@@ -890,7 +955,7 @@ fun StudioScreen(
                                             Toast.makeText(context, "Projet ouvert : $name", Toast.LENGTH_SHORT).show()
                                         }
                                         projectDialogOpen = false
-                                    }
+                                    })
                                     .padding(vertical = 10.dp)
                             )
                             TextButton(onClick = { projectToDelete = name }) {
@@ -1823,6 +1888,38 @@ private class MerylStudioEngine(private val context: Context) {
                 tmp.delete()
             }
             writePrimaryTakeEnds(validEnds.dropLast(1))
+            true
+        }.getOrDefault(false)
+    }
+
+    fun renameSavedProject(oldName: String, requested: String): String? {
+        if (recording.get()) return null
+        val newName = requested.trim().replace(Regex("""[\\/:*?"<>|]"""), "_")
+        if (newName.isBlank() || newName == "." || newName == "..") return null
+        val source = File(savedProjectsDir, oldName)
+        val target = File(savedProjectsDir, newName)
+        if (!source.isDirectory || source.parentFile?.canonicalFile != savedProjectsDir.canonicalFile) return null
+        if (target.exists() && source.canonicalFile != target.canonicalFile) return null
+        if (source.name == newName) return newName
+        if (!source.renameTo(target)) return null
+        if (currentProjectName() == oldName) rememberCurrentProject(newName)
+        return newName
+    }
+
+    fun exportProjectZip(name: String, uri: Uri): Boolean {
+        val source = File(savedProjectsDir, name)
+        if (!source.isDirectory || source.parentFile?.canonicalFile != savedProjectsDir.canonicalFile) return false
+        return runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                java.util.zip.ZipOutputStream(stream).use { zip ->
+                    source.walkTopDown().filter { it.isFile }.forEach { file ->
+                        val relative = file.relativeTo(source).invariantSeparatorsPath
+                        zip.putNextEntry(java.util.zip.ZipEntry(relative))
+                        file.inputStream().use { it.copyTo(zip) }
+                        zip.closeEntry()
+                    }
+                }
+            } ?: error("Destination inaccessible")
             true
         }.getOrDefault(false)
     }
