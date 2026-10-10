@@ -1,6 +1,7 @@
 package com.nik.roadplayer
 
 import android.graphics.BitmapFactory
+import androidx.compose.ui.res.painterResource
 import android.util.Base64
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
@@ -19,6 +20,15 @@ fun MerylBanner(
     kind: MerylBannerKind,
     modifier: Modifier = Modifier
 ) {
+    if (kind == MerylBannerKind.CAR_AUDIO) {
+        Image(
+            painter = painterResource(id = R.drawable.meryl_banner_v130),
+            contentDescription = "Meryl Car Audio - Player MP3 Perso",
+            modifier = modifier,
+            contentScale = ContentScale.Fit
+        )
+        return
+    }
     val encoded = when (kind) {
         MerylBannerKind.CAR_AUDIO -> CAR_BANNER_BASE64
         MerylBannerKind.MINI_STUDIO -> STUDIO_BANNER_BASE64
