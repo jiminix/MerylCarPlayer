@@ -155,6 +155,7 @@ fun StudioScreen(
     var projectToDelete by remember { mutableStateOf<String?>(null) }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
+    var projectBusy by remember { mutableStateOf(false) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
 
     val projectNameVoiceLauncher = rememberLauncherForActivityResult(
@@ -177,6 +178,8 @@ fun StudioScreen(
     }
     val timelineDuration = max(1000L, max(storedTimelineDuration, liveRecordingDuration))
     val timelineProgress = (playheadMs.toFloat() / timelineDuration.toFloat()).coerceIn(0f, 1f)
+
+    fun freshProjectName(): String = SimpleDateFormat("dd-MM-yy_HHmmss", Locale.FRANCE).format(Date()) + "_Projet"
 
     fun settings(): StudioMixSettings = StudioMixSettings(
         volumes = volumes.toList(),
@@ -496,21 +499,7 @@ fun StudioScreen(
                             playbackStartOffset = playheadMs
                             playbackStartedAt = 0L
 
-                            val autoSaveName = currentProjectName
-                            if (autoSaveName.isNotBlank()) {
-                                val autoSaveSettings = settings()
-                                val autoSaved = withContext(Dispatchers.IO) {
-                                    engine.saveProject(autoSaveName, autoSaveSettings)
-                                }
-                                if (autoSaved) {
-                                    currentProjectName = engine.currentProjectName()
-                                    Toast.makeText(
-                                        context,
-                                        "Mise à jour auto : $currentProjectName",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
+
                         }
                     }
                 } else {
@@ -556,12 +545,6 @@ fun StudioScreen(
                     playbackStartedAt = 0L
                     segmentEnds.clear()
 
-                    if (removedMs > 0L && autoSaveName.isNotBlank()) {
-                        val autoSaved = withContext(Dispatchers.IO) {
-                            engine.saveProject(autoSaveName, autoSaveSettings)
-                        }
-                        if (autoSaved) currentProjectName = engine.currentProjectName()
-                    }
 
                     cleaningSilences = false
                     Toast.makeText(
@@ -588,7 +571,7 @@ fun StudioScreen(
                 text = "SAVE",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF355D48),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 if (currentProjectName.isNotBlank()) {
                     val nameToUpdate = currentProjectName
@@ -609,17 +592,17 @@ fun StudioScreen(
                         }
                     }
                 } else {
-                    projectName = SimpleDateFormat("dd-MM-yy", Locale.FRANCE).format(Date()) + "_Projet_" + SimpleDateFormat("HHmmss", Locale.FRANCE).format(Date())
+                    projectName = freshProjectName()
                     projectList = engine.listProjects()
                     projectDialogOpen = true
                 }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(3.dp))
             StudioTransportButton(
                 text = "↶ 1",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing[0],
                 activeColor = Color(0xFFAD6822),
-                modifier = Modifier.width(76.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
                 playing = false
@@ -648,34 +631,51 @@ fun StudioScreen(
                     }
                 }
             }
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(3.dp))
             StudioTransportButton(
-                text = "TOUT ×",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                text = "UNDO",
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !projectBusy && existing.any { it },
                 activeColor = Color(0xFF8E3439),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
                 playing = false
-                engine.deleteAllTracks()
-                repeat(STUDIO_TRACK_COUNT) { index ->
-                    existing[index] = false
-                    durations[index] = 0L
-                    peaks[index] = emptyList()
+                projectBusy = true
+                val snapshotSettings = settings()
+                val snapshotName = freshProjectName()
+                scope.launch {
+                    // Never overwrite an existing project here: only SAVE updates it.
+                    val saved = withContext(Dispatchers.IO) {
+                        engine.saveProject(snapshotName, snapshotSettings)
+                    }
+                    if (saved) {
+                        Toast.makeText(context, "Enregistrement sauvegardé : $snapshotName", Toast.LENGTH_LONG).show()
+                        engine.deleteAllTracks()
+                        engine.writePrimaryTakeEnds(emptyList())
+                        segmentEnds.clear()
+                        repeat(STUDIO_TRACK_COUNT) { index ->
+                            existing[index] = false
+                            durations[index] = 0L
+                            peaks[index] = emptyList()
+                        }
+                        playheadMs = 0L
+                        playbackStartOffset = 0L
+                        playbackStartedAt = 0L
+                        currentProjectName = freshProjectName()
+                        engine.setCurrentProjectName(currentProjectName)
+                        Toast.makeText(context, "Nouveau projet : $currentProjectName", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Sauvegarde impossible : projet conservé", Toast.LENGTH_LONG).show()
+                    }
+                    projectBusy = false
                 }
-                segmentEnds.clear()
-                engine.writePrimaryTakeEnds(emptyList())
-                playheadMs = 0L
-                playbackStartOffset = 0L
-                playbackStartedAt = 0L
-                Toast.makeText(context, "Tous les enregistrements ont été effacés", Toast.LENGTH_SHORT).show()
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(3.dp))
             StudioTransportButton(
                 text = "OPEN",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
                 activeColor = Color(0xFF3D527A),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 projectList = engine.listProjects()
                 if (projectList.isEmpty()) {
@@ -1554,6 +1554,8 @@ private class MerylStudioEngine(private val context: Context) {
 
     fun currentProjectName(): String =
         studioPrefs.getString("current_project_name", "").orEmpty()
+
+    fun setCurrentProjectName(name: String) = rememberCurrentProject(name)
 
     private fun rememberCurrentProject(name: String) {
         studioPrefs.edit().putString("current_project_name", name).apply()
