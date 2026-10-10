@@ -269,6 +269,8 @@ fun StudioScreen(
 
     LaunchedEffect(Unit) {
         repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
+        segmentEnds.clear()
+        segmentEnds.addAll(engine.readPrimaryTakeEnds())
     }
 
     // Three silent beats at tap tempo; capture starts immediately after the last beat.
@@ -371,6 +373,8 @@ fun StudioScreen(
             onSolo = { solo[0] = !solo[0] },
             onRecord = { requestRecord(0) },
             onClear = {
+                engine.writePrimaryTakeEnds(emptyList())
+                segmentEnds.clear()
                 engine.deleteTrack(0)
                 existing[0] = false
                 durations[0] = 0L
@@ -484,9 +488,10 @@ fun StudioScreen(
                             // By default, keep the playhead exactly at the end of the
                             // recording that has just been committed to disk.
                             playheadMs = actualDuration.takeIf { it > 0L } ?: recordedEndMs
-                            if (playheadMs > 0L && segmentEnds.none { kotlin.math.abs(it - playheadMs) < 50L }) {
+                            if (track == 0 && playheadMs > 0L && segmentEnds.none { kotlin.math.abs(it - playheadMs) < 50L }) {
                                 segmentEnds.add(playheadMs)
                                 segmentEnds.sort()
+                                engine.writePrimaryTakeEnds(segmentEnds.toList())
                             }
                             playbackStartOffset = playheadMs
                             playbackStartedAt = 0L
@@ -611,6 +616,40 @@ fun StudioScreen(
             }
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
+                text = "↶ 1",
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing[0],
+                activeColor = Color(0xFFAD6822),
+                modifier = Modifier.width(76.dp)
+            ) {
+                engine.stopPlayback()
+                playing = false
+                scope.launch {
+                    val previousEnds = segmentEnds.toList()
+                    val ok = withContext(Dispatchers.IO) {
+                        engine.undoLastPrimaryTake(previousEnds)
+                    }
+                    if (ok) {
+                        segmentEnds.clear()
+                        segmentEnds.addAll(engine.readPrimaryTakeEnds())
+                        refreshTrack(0)
+                        val remaining = engine.trackDurationMs(0)
+                        playheadMs = remaining
+                        playbackStartOffset = remaining
+                        playbackStartedAt = 0L
+                        if (currentProjectName.isNotBlank()) {
+                            val saved = withContext(Dispatchers.IO) {
+                                engine.saveProject(currentProjectName, settings())
+                            }
+                            if (!saved) Toast.makeText(context, "Projet modifié : sauvegarde à refaire", Toast.LENGTH_LONG).show()
+                        }
+                        Toast.makeText(context, "Dernière prise de la piste 1 annulée", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Impossible d'annuler la prise", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+            StudioTransportButton(
                 text = "UNDO",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF8E3439),
@@ -625,6 +664,7 @@ fun StudioScreen(
                     peaks[index] = emptyList()
                 }
                 segmentEnds.clear()
+                engine.writePrimaryTakeEnds(emptyList())
                 playheadMs = 0L
                 playbackStartOffset = 0L
                 playbackStartedAt = 0L
@@ -828,6 +868,7 @@ fun StudioScreen(
                                         if (engine.loadProject(name)) {
                                             currentProjectName = engine.currentProjectName()
                                             segmentEnds.clear()
+                                            segmentEnds.addAll(engine.readPrimaryTakeEnds())
                                             repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
                                             val loaded = engine.loadProjectSettings()
                                             loaded?.let { s ->
@@ -1723,6 +1764,57 @@ private class MerylStudioEngine(private val context: Context) {
         }
     }
 
+    private val primaryTakesFile get() = File(projectDir, "primary_takes.json")
+
+    fun readPrimaryTakeEnds(): List<Long> = runCatching {
+        val json = org.json.JSONArray(primaryTakesFile.readText())
+        (0 until json.length()).map { json.getLong(it) }.filter { it > 0L }.distinct().sorted()
+    }.getOrDefault(emptyList())
+
+    fun writePrimaryTakeEnds(ends: List<Long>) {
+        runCatching {
+            primaryTakesFile.writeText(org.json.JSONArray(ends.filter { it > 0L }.distinct().sorted()).toString())
+        }
+    }
+
+    fun undoLastPrimaryTake(ends: List<Long>): Boolean {
+        if (recording.get()) return false
+        val wav = trackFile(0)
+        if (!wav.isFile || wav.length() <= WAV_HEADER_SIZE) return false
+        val currentDuration = trackDurationMs(0)
+        val validEnds = ends.filter { it > 0L && it <= currentDuration + 100L }.distinct().sorted()
+        val previous = validEnds.dropLast(1).lastOrNull() ?: 0L
+        if (previous >= currentDuration) return false
+        return runCatching {
+            if (previous <= 0L) {
+                wav.delete()
+            } else {
+                val bytesPerSecond = STUDIO_SAMPLE_RATE * 2L
+                val dataBytes = (previous * bytesPerSecond / 1000L).coerceAtMost(wav.length() - WAV_HEADER_SIZE)
+                val tmp = File(projectDir, "primary_undo.tmp.wav")
+                BufferedOutputStream(FileOutputStream(tmp)).use { output ->
+                    writeWavHeader(output, dataBytes)
+                    BufferedInputStream(FileInputStream(wav)).use { input ->
+                        skipFully(input, WAV_HEADER_SIZE.toLong())
+                        val buffer = ByteArray(8192)
+                        var remaining = dataBytes
+                        while (remaining > 0L) {
+                            val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                            if (count <= 0) break
+                            output.write(buffer, 0, count)
+                            remaining -= count
+                        }
+                        check(remaining == 0L)
+                    }
+                }
+                tmp.copyTo(wav, overwrite = true)
+                tmp.delete()
+            }
+            writePrimaryTakeEnds(validEnds.dropLast(1))
+            true
+        }.getOrDefault(false)
+    }
+
     fun deleteSavedProject(name: String): Boolean {
         if (recording.get()) return false
         val project = File(savedProjectsDir, name)
@@ -1750,6 +1842,7 @@ private class MerylStudioEngine(private val context: Context) {
                 val source = trackFile(index)
                 if (source.isFile) source.copyTo(File(destination, source.name), overwrite = true)
             }
+            if (primaryTakesFile.isFile) primaryTakesFile.copyTo(File(destination, primaryTakesFile.name), overwrite = true)
             val json = JSONObject().apply {
                 put("bpm", settings.bpm)
                 put("volumes", settings.volumes.joinToString(","))
@@ -1784,6 +1877,9 @@ private class MerylStudioEngine(private val context: Context) {
                 val source = File(sourceDir, "track_" + (index + 1) + ".wav")
                 if (source.isFile) source.copyTo(trackFile(index), overwrite = true)
             }
+            val savedTakes = File(sourceDir, primaryTakesFile.name)
+            if (savedTakes.isFile) savedTakes.copyTo(primaryTakesFile, overwrite = true)
+            else primaryTakesFile.delete()
             File(sourceDir, "project.json").takeIf { it.isFile }
                 ?.copyTo(File(projectDir, "project.json"), overwrite = true)
             true
