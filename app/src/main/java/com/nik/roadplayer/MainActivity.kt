@@ -281,7 +281,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.26")
+                PlayerHeader(version = "V1.28")
                 StartupLoadingBar(progress = startupProgress)
             }
         }
@@ -624,7 +624,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                             playlists = repository.listPlaylists()
                             Toast.makeText(
                                 context,
-                                if (newCount > 0) "$newCount nouvel album détecté" else "Aucune nouveauté détectée",
+                                if (newCount > 1) "$newCount albums ajoutés" else if (newCount == 1) "1 album ajouté" else "0 album ajouté",
                                 Toast.LENGTH_SHORT
                             ).show()
                         } finally {
