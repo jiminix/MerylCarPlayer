@@ -650,7 +650,7 @@ fun StudioScreen(
             }
             Spacer(Modifier.width(4.dp))
             StudioTransportButton(
-                text = "UNDO",
+                text = "TOUT ×",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF8E3439),
                 modifier = Modifier.width(96.dp)
