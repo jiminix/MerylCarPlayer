@@ -659,9 +659,6 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.size(4.dp))
-                    TextButton(onClick = { statisticsOpen = true }) {
-                        Text("STATS", color = Color.White)
-                    }
                     SearchIconButton(
                         active = search.isNotBlank(),
                         enabled = !loading && !refreshing && permissionGranted,
@@ -788,7 +785,11 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                     librarySortMode = "genre"
                     genreMenuOpen = false
                 },
-                onDismiss = { genreMenuOpen = false }
+                onDismiss = { genreMenuOpen = false },
+                onStatisticsClick = {
+                    genreMenuOpen = false
+                    statisticsOpen = true
+                }
             )
         }
 
@@ -2027,7 +2028,8 @@ private fun MerylYoutubePlaylistDialog(onDismiss: () -> Unit) {
 private fun GenreCategoryDialog(
     selected: String,
     onSelect: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onStatisticsClick: () -> Unit
 ) {
     val profile = LocalUiColorProfile.current
     Dialog(onDismissRequest = onDismiss) {
@@ -2072,6 +2074,22 @@ private fun GenreCategoryDialog(
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
                 }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(Color(0xFF303A42))
+                    .clickable { onStatisticsClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "STATS",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
