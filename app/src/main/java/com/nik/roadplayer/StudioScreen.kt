@@ -500,6 +500,9 @@ fun StudioScreen(
                             val actualDuration = withContext(Dispatchers.IO) {
                                 engine.trackDurationMs(track)
                             }
+                            if (actualDuration > 0L && engine.hasTrack(track)) {
+                                StudioRecordingJournal.record(context, track, recordedEndMs.coerceAtLeast(0L))
+                            }
                             existing[track] = engine.hasTrack(track)
                             durations[track] = actualDuration
                             if (track == 0) {
