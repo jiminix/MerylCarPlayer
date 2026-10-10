@@ -603,7 +603,7 @@ fun StudioScreen(
                         }
                     }
                 } else {
-                    projectName = SimpleDateFormat("dd-MM-yyyy", Locale.FRANCE).format(Date()) + "_Projet_" + SimpleDateFormat("HHmmss", Locale.FRANCE).format(Date())
+                    projectName = SimpleDateFormat("dd-MM-yy", Locale.FRANCE).format(Date()) + "_Projet_" + SimpleDateFormat("HHmmss", Locale.FRANCE).format(Date())
                     projectList = engine.listProjects()
                     projectDialogOpen = true
                 }
