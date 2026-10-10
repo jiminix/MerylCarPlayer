@@ -1698,7 +1698,13 @@ private class MerylStudioEngine(private val context: Context) {
         if (!saved) return false
 
         rememberCurrentProject(safeName)
-        return publishProjectMp3(settings, safeName)
+        // Saving the editable multitrack project must not fail just because
+        // Android/FFmpeg cannot publish the optional MP3 copy.
+        val mp3Published = publishProjectMp3(settings, safeName)
+        if (!mp3Published) {
+            android.util.Log.w("MerylStudio", "Project saved but MP3 publication failed: $safeName")
+        }
+        return true
     }
 
     fun loadProject(name: String): Boolean {
