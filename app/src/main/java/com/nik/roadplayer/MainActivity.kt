@@ -281,7 +281,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.37")
+                PlayerHeader(version = "V1.39")
                 StartupLoadingBar(progress = startupProgress)
             }
         }
@@ -305,6 +305,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
     var searching by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var searchDialogOpen by remember { mutableStateOf(false) }
+    var statisticsOpen by remember { mutableStateOf(false) }
     var gridColumns by rememberSaveable { mutableStateOf(3) }
     var librarySortMode by rememberSaveable { mutableStateOf("artist") }
     var genreCategory by rememberSaveable { mutableStateOf("albums") }
@@ -584,6 +585,8 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
         }
     }
 
+    if (statisticsOpen) ListeningStatisticsDialog(onDismiss = { statisticsOpen = false })
+
     BackHandler(enabled = studioOpen) {
         studioOpen = false
     }
@@ -656,6 +659,9 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.size(4.dp))
+                    TextButton(onClick = { statisticsOpen = true }) {
+                        Text("STATS", color = Color.White)
+                    }
                     SearchIconButton(
                         active = search.isNotBlank(),
                         enabled = !loading && !refreshing && permissionGranted,
