@@ -1873,33 +1873,41 @@ private class MerylStudioEngine(private val context: Context) {
             }
         }.getOrNull()
 
-        val uri = if (existingUri != null) {
+        // A MediaStore row created by an older installation may no longer be writable
+        // after an Android / One UI update. Never assume that finding it grants write access.
+        val canUpdateExisting = existingUri?.let { candidate ->
             runCatching {
                 resolver.update(
-                    existingUri,
+                    candidate,
                     ContentValues().apply {
                         put(MediaStore.Audio.Media.IS_PENDING, 1)
                         put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
                     },
                     null,
                     null
-                )
-            }
-            existingUri
-        } else {
-            runCatching {
-                resolver.insert(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    ContentValues().apply {
-                        put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
-                        put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
-                        put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
-                        put(MediaStore.Audio.Media.IS_MUSIC, 1)
-                        put(MediaStore.Audio.Media.IS_PENDING, 1)
-                    }
-                )
-            }.getOrNull()
-        } ?: run {
+                ) > 0
+            }.getOrDefault(false)
+        } ?: false
+
+        val creatingNew = !canUpdateExisting
+        val targetName = if (existingUri != null && creatingNew) {
+            "$cleanedBase" + "_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE)
+                .format(Date()) + ".mp3"
+        } else displayName
+
+        val uri = if (canUpdateExisting) existingUri else runCatching {
+            resolver.insert(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                ContentValues().apply {
+                    put(MediaStore.Audio.Media.DISPLAY_NAME, targetName)
+                    put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                    put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
+                    put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                    put(MediaStore.Audio.Media.IS_PENDING, 1)
+                }
+            )
+        }.getOrNull()
+        if (uri == null) {
             runCatching { tempMp3.delete() }
             return false
         }
@@ -1913,7 +1921,7 @@ private class MerylStudioEngine(private val context: Context) {
         runCatching { tempMp3.delete() }
 
         if (!copied) {
-            if (existingUri == null) runCatching { resolver.delete(uri, null, null) }
+            if (creatingNew) runCatching { resolver.delete(uri, null, null) }
             return false
         }
 
