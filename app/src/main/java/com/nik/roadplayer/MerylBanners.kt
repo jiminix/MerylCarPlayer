@@ -22,7 +22,7 @@ fun MerylBanner(
 ) {
     if (kind == MerylBannerKind.CAR_AUDIO) {
         Image(
-            painter = painterResource(id = R.drawable.meryl_banner_v130),
+            painter = painterResource(id = R.drawable.bando_haut),
             contentDescription = "Meryl Car Audio - Player MP3 Perso",
             modifier = modifier,
             contentScale = ContentScale.Fit
