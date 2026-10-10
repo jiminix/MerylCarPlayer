@@ -152,6 +152,7 @@ fun StudioScreen(
     var projectDialogOpen by remember { mutableStateOf(false) }
     var projectName by remember { mutableStateOf("") }
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var projectToDelete by remember { mutableStateOf<String?>(null) }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
@@ -746,6 +747,26 @@ fun StudioScreen(
 
     }
 
+    projectToDelete?.let { name ->
+        AlertDialog(
+            onDismissRequest = { projectToDelete = null },
+            title = { Text("Supprimer le projet ?") },
+            text = { Text("Supprimer définitivement « ${studioDisplayProjectName(name)} » ? Cette action est irréversible.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (engine.deleteSavedProject(name)) {
+                        projectList = engine.listProjects()
+                        Toast.makeText(context, "Projet supprimé", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Suppression impossible", Toast.LENGTH_SHORT).show()
+                    }
+                    projectToDelete = null
+                }) { Text("SUPPRIMER", color = Color(0xFFFF7777)) }
+            },
+            dismissButton = { TextButton(onClick = { projectToDelete = null }) { Text("ANNULER") } }
+        )
+    }
+
     if (projectDialogOpen) {
         AlertDialog(
             onDismissRequest = { projectDialogOpen = false },
@@ -787,11 +808,12 @@ fun StudioScreen(
                 } else {
                     Column {
                         projectList.forEach { name ->
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = name,
+                                text = studioDisplayProjectName(name),
                                 color = Color.White,
                                 modifier = Modifier
-                                    .fillMaxWidth()
+                                    .weight(1f)
                                     .clickable {
                                         engine.stopPlayback()
                                         playing = false
@@ -816,6 +838,10 @@ fun StudioScreen(
                                     }
                                     .padding(vertical = 10.dp)
                             )
+                            TextButton(onClick = { projectToDelete = name }) {
+                                Text("×", color = Color(0xFFFF7777), fontSize = 24.sp)
+                            }
+                            }
                         }
                     }
                 }
@@ -1432,6 +1458,16 @@ private fun StudioTransportButton(
     }
 }
 
+private fun studioDisplayProjectName(name: String): String {
+    val iso = Regex("^(?:Projet_)?(\\d{4})(\\d{2})(\\d{2})(.*)$").matchEntire(name)
+    if (iso != null) return "${iso.groupValues[3]}/${iso.groupValues[2]}/${iso.groupValues[1]}${iso.groupValues[4]}"
+    val year4 = Regex("^(\\d{2})-(\\d{2})-(\\d{4})(.*)$").matchEntire(name)
+    if (year4 != null) return "${year4.groupValues[1]}/${year4.groupValues[2]}/${year4.groupValues[3]}${year4.groupValues[4]}"
+    val year2 = Regex("^(\\d{2})-(\\d{2})-(\\d{2})(.*)$").matchEntire(name)
+    if (year2 != null) return "${year2.groupValues[1]}/${year2.groupValues[2]}/${year2.groupValues[3]}${year2.groupValues[4]}"
+    return name
+}
+
 private fun formatStudioDuration(ms: Long): String {
     val seconds = (ms / 1000L).coerceAtLeast(0L)
     val min = seconds / 60L
@@ -1662,6 +1698,13 @@ private class MerylStudioEngine(private val context: Context) {
         } else {
             stopPlayback()
         }
+    }
+
+    fun deleteSavedProject(name: String): Boolean {
+        if (recording.get()) return false
+        val project = File(savedProjectsDir, name)
+        if (!project.isDirectory || project.parentFile?.canonicalFile != savedProjectsDir.canonicalFile) return false
+        return runCatching { project.deleteRecursively() }.getOrDefault(false)
     }
 
     fun listProjects(): List<String> =
