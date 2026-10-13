@@ -1981,6 +1981,40 @@ private class MerylStudioEngine(private val context: Context) {
         return runCatching { project.deleteRecursively() }.getOrDefault(false)
     }
 
+    fun savedProjectSizeLabel(name: String): String {
+        val directory = File(savedProjectsDir, name)
+        if (!directory.isDirectory || directory.parentFile?.canonicalFile != savedProjectsDir.canonicalFile) return "—"
+        val bytes = directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        return String.format(Locale.FRANCE, "%.1f Mo", bytes / (1024.0 * 1024.0))
+    }
+
+    fun savedProjectPreviewUri(name: String): Uri? {
+        val directory = File(savedProjectsDir, name)
+        if (!directory.isDirectory || directory.parentFile?.canonicalFile != savedProjectsDir.canonicalFile) return null
+        val mp3Name = name.removeSuffix(".mp3").removeSuffix(".MP3") + ".mp3"
+        val mp3 = runCatching {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Media._ID),
+                MediaStore.Audio.Media.DISPLAY_NAME + "=? AND " + MediaStore.Audio.Media.RELATIVE_PATH + "=?",
+                arrayOf(mp3Name, "Music/MerylStudio/"),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    ContentUris.withAppendedId(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+                    )
+                } else null
+            }
+        }.getOrNull()
+        if (mp3 != null) return mp3
+        return (1..STUDIO_TRACK_COUNT).asSequence()
+            .map { File(directory, "track_" + it + ".wav") }
+            .firstOrNull { it.isFile && it.length() > 44L }
+            ?.let { Uri.fromFile(it) }
+    }
+
     fun listProjects(): List<String> =
         savedProjectsDir.listFiles()
             ?.filter { it.isDirectory }
