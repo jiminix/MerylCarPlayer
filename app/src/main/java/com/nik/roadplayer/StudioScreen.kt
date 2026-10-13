@@ -15,6 +15,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.MediaPlayer
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -159,6 +160,38 @@ fun StudioScreen(
     var renameProjectName by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
     var projectToShare by remember { mutableStateOf<String?>(null) }
+    var previewProject by remember { mutableStateOf<String?>(null) }
+    val previewPlayer = remember { MediaPlayer() }
+    fun stopProjectPreview() {
+        runCatching { if (previewPlayer.isPlaying) previewPlayer.stop() }
+        previewProject = null
+    }
+    DisposableEffect(previewPlayer) {
+        onDispose { runCatching { previewPlayer.release() } }
+    }
+    fun toggleProjectPreview(name: String) {
+        if (previewProject == name) {
+            stopProjectPreview()
+            return
+        }
+        stopProjectPreview()
+        val uri = engine.savedProjectPreviewUri(name)
+        if (uri == null) {
+            Toast.makeText(context, "Aucun audio disponible", Toast.LENGTH_SHORT).show()
+            return
+        }
+        runCatching {
+            previewPlayer.reset()
+            previewPlayer.setDataSource(context, uri)
+            previewPlayer.setOnCompletionListener { previewProject = null }
+            previewPlayer.prepare()
+            previewPlayer.start()
+            previewProject = name
+        }.onFailure {
+            previewProject = null
+            Toast.makeText(context, "Lecture impossible", Toast.LENGTH_SHORT).show()
+        }
+    }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
     var projectBusy by remember { mutableStateOf(false) }
@@ -875,7 +908,7 @@ fun StudioScreen(
 
     if (projectDialogOpen) {
         AlertDialog(
-            onDismissRequest = { projectDialogOpen = false },
+            onDismissRequest = { stopProjectPreview(); projectDialogOpen = false },
             title = { Text(if (projectName.isNotEmpty()) "Sauvegarder le projet" else "Ouvrir un projet", fontWeight = FontWeight.Bold) },
             text = {
                 if (projectName.isNotEmpty()) {
@@ -928,15 +961,17 @@ fun StudioScreen(
                                     .padding(horizontal = 10.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                            Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = studioDisplayProjectName(name),
                                 color = Color(0xFF17243A),
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .fillMaxWidth()
                                     .combinedClickable(
                                         onLongClick = { projectActions = name },
                                         onClick = {
+                                        stopProjectPreview()
                                         engine.stopPlayback()
                                         playing = false
                                         if (engine.loadProject(name)) {
@@ -959,9 +994,21 @@ fun StudioScreen(
                                         }
                                         projectDialogOpen = false
                                     })
-                                    .padding(vertical = 10.dp)
+                                    .padding(top = 6.dp)
                             )
-                            TextButton(onClick = { projectToDelete = name }) {
+                            Text(text = engine.savedProjectSizeLabel(name), color = Color(0xFF55616B), fontSize = 11.sp)
+                            }
+                            TextButton(onClick = { toggleProjectPreview(name) }) {
+                                Text(if (previewProject == name) "■" else "▶", color = Color(0xFF123B6A), fontSize = 20.sp)
+                            }
+                            TextButton(onClick = {
+                                stopProjectPreview()
+                                renameText = name
+                                renameProjectName = name
+                            }) {
+                                Text("✎", color = Color(0xFF123B6A), fontSize = 20.sp)
+                            }
+                            TextButton(onClick = { stopProjectPreview(); projectToDelete = name }) {
                                 Text("×", color = Color(0xFFB00020), fontWeight = FontWeight.Bold, fontSize = 28.sp)
                             }
                             }
@@ -986,7 +1033,7 @@ fun StudioScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { projectDialogOpen = false }) { Text("ANNULER") }
+                TextButton(onClick = { stopProjectPreview(); projectDialogOpen = false }) { Text("FERMER") }
             }
         )
     }
