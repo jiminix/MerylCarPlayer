@@ -281,7 +281,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.39")
+                PlayerHeader(version = "V1.40")
                 StartupLoadingBar(progress = startupProgress)
             }
         }
@@ -602,7 +602,8 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V1.37", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
+            PlayerHeader(version = "V1.40", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
+            GeneralBackupButton()
 
         if (studioOpen) {
             StudioScreen(
