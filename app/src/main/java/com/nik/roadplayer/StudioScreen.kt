@@ -1730,7 +1730,7 @@ private class MerylStudioEngine(private val context: Context) {
         settings: StudioMixSettings,
         inputGain: Float = 1f
     ): Boolean {
-        if (index !in 0 until STUDIO_TRACK_COUNT || recording.get()) return false
+        if (index !in 0 until STUDIO_TRACK_COUNT || recording.get() || recordThread?.isAlive == true) return false
         stopPlayback()
 
         val minBuffer = AudioRecord.getMinBufferSize(
@@ -1784,7 +1784,11 @@ private class MerylStudioEngine(private val context: Context) {
                     val shorts = ShortArray(max(4096, minBuffer / 2))
                     val bytes = ByteArray(shorts.size * 2)
                     while (recording.get()) {
-                        val count = recorder.read(shorts, 0, shorts.size)
+                        val count = recorder.read(shorts, 0, shorts.size, AudioRecord.READ_NON_BLOCKING)
+                        if (count == 0) {
+                            Thread.sleep(2)
+                            continue
+                        }
                         if (count == AudioRecord.ERROR_DEAD_OBJECT || count == AudioRecord.ERROR_INVALID_OPERATION || count == AudioRecord.ERROR_BAD_VALUE) break
                         if (count <= 0) continue
                         var b = 0
@@ -1828,11 +1832,12 @@ private class MerylStudioEngine(private val context: Context) {
     fun stopRecordingBlocking(): Boolean {
         if (!recording.get()) return false
         recording.set(false)
-        runCatching { currentRecorder?.stop() }
-        runCatching { recordThread?.join(10000L) }
-        if (recordThread?.isAlive == false) recordThread = null
+        val thread = recordThread
+        runCatching { thread?.join(10000L) }
+        val completed = thread?.isAlive != true
+        if (completed) recordThread = null
         stopPlayback()
-        return true
+        return completed
     }
 
     fun startPlayback(
