@@ -22,6 +22,7 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
 import android.os.SystemClock
+import android.os.Process
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1745,7 +1746,7 @@ private class MerylStudioEngine(private val context: Context) {
                 STUDIO_SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
-                max(minBuffer * 2, 16384)
+                max(minBuffer * 8, 65536)
             )
         } catch (_: Throwable) {
             return false
@@ -1777,12 +1778,14 @@ private class MerylStudioEngine(private val context: Context) {
         val thread = Thread {
             var ok = false
             try {
-                BufferedOutputStream(FileOutputStream(temp)).use { output ->
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                BufferedOutputStream(FileOutputStream(temp), 65536).use { output ->
                     recorder.startRecording()
-                    val shorts = ShortArray(max(2048, minBuffer / 2))
+                    val shorts = ShortArray(max(4096, minBuffer / 2))
                     val bytes = ByteArray(shorts.size * 2)
                     while (recording.get()) {
                         val count = recorder.read(shorts, 0, shorts.size)
+                        if (count == AudioRecord.ERROR_DEAD_OBJECT || count == AudioRecord.ERROR_INVALID_OPERATION || count == AudioRecord.ERROR_BAD_VALUE) break
                         if (count <= 0) continue
                         var b = 0
                         for (i in 0 until count) {
@@ -1826,8 +1829,8 @@ private class MerylStudioEngine(private val context: Context) {
         if (!recording.get()) return false
         recording.set(false)
         runCatching { currentRecorder?.stop() }
-        runCatching { recordThread?.join(2500L) }
-        recordThread = null
+        runCatching { recordThread?.join(10000L) }
+        if (recordThread?.isAlive == false) recordThread = null
         stopPlayback()
         return true
     }
