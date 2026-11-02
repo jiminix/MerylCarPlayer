@@ -49,8 +49,8 @@ fun MerylBanner(kind: MerylBannerKind, modifier: Modifier = Modifier) {
         onLongClick = { picker.launch("image/*") }
     )
     if (bitmap != null) {
-        Image(bitmap = bitmap.asImageBitmap(), contentDescription = "Bandeau Meryl Car Audio (appui long pour modifier)", modifier = decorated, contentScale = ContentScale.Fit)
+        Image(bitmap = bitmap.asImageBitmap(), contentDescription = "Bandeau Meryl Car Audio (appui long pour modifier)", modifier = decorated, contentScale = ContentScale.Crop)
     } else {
-        Image(painter = painterResource(id = R.drawable.bando_haut), contentDescription = "Bandeau Meryl Car Audio (appui long pour modifier)", modifier = decorated, contentScale = ContentScale.Fit)
+        Image(painter = painterResource(id = R.drawable.bando_haut), contentDescription = "Bandeau Meryl Car Audio (appui long pour modifier)", modifier = decorated, contentScale = ContentScale.Crop)
     }
 }
