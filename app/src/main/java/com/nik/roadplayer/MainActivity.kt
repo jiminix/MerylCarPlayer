@@ -644,7 +644,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 8.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
+                        .padding(start = 8.dp, end = 8.dp, top = 0.dp, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     LibrarySortSelector(
