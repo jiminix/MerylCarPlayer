@@ -603,7 +603,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
             PlayerHeader(version = "V1.40", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
-            GeneralBackupButton()
+            if (studioOpen) GeneralBackupButton()
 
         if (studioOpen) {
             StudioScreen(
@@ -666,6 +666,8 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                         onClick = { searchDialogOpen = true }
                     )
                     Spacer(Modifier.size(4.dp))
+                    GeneralBackupButton()
+                    Spacer(Modifier.size(3.dp))
                     DisplayModeSelector(
                         columns = gridColumns,
                         enabled = !loading && !refreshing && permissionGranted,
