@@ -1330,7 +1330,7 @@ private fun MainTabs(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF0A0A0A))
+            .background(Color(0xFF202830))
             .padding(horizontal = 10.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -1341,14 +1341,14 @@ private fun MainTabs(
                     .height(38.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(
-                        if (selectedTab == index) profile.primary else Color(0xFF151515)
+                        if (selectedTab == index) Color(0xFFFFA726) else Color(0xFFFFDE59)
                     )
                     .clickable { onSelect(index) },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = label,
-                    color = if (selectedTab == index) profile.onPrimary else Color(0xFFA8A8A8),
+                    color = Color(0xFF202830),
                     fontSize = 15.sp,
                     fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium
                 )
