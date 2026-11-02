@@ -2057,6 +2057,35 @@ private class MerylStudioEngine(private val context: Context) {
         }.getOrDefault(false)
         if (!saved) return false
 
+        // Copy a complete editable Studio project to a user-visible ZIP.
+        // The private original remains authoritative and is never deleted.
+        runCatching {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, safeName + "-" + System.currentTimeMillis() + ".zip")
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/MerylCarAudio/Projets/")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: error("Destination de sauvegarde inaccessible")
+            try {
+                resolver.openOutputStream(uri)?.use { output ->
+                    java.util.zip.ZipOutputStream(output).use { zip ->
+                        destination.walkTopDown().filter { it.isFile }.forEach { file ->
+                            zip.putNextEntry(java.util.zip.ZipEntry(file.relativeTo(destination).invariantSeparatorsPath))
+                            file.inputStream().use { it.copyTo(zip) }
+                            zip.closeEntry()
+                        }
+                    }
+                } ?: error("Impossible d'écrire la sauvegarde")
+                resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+            } catch (error: Exception) {
+                resolver.delete(uri, null, null)
+                throw error
+            }
+        }.onFailure { android.util.Log.e("MerylStudio", "External project backup failed", it) }
+
         rememberCurrentProject(safeName)
         // Saving the editable multitrack project must not fail just because
         // Android/FFmpeg cannot publish the optional MP3 copy.
