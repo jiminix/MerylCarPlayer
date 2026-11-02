@@ -3055,12 +3055,12 @@ private fun PlaylistScreen(
                             controller?.play()
                             currentIndex = index
                         }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(30.dp)
+                            .size(25.dp)
                             .clip(RoundedCornerShape(9.dp))
                             .background(if (active) Color(0xFF9BC5D6) else Color(0xFF1D2A31)),
                         contentAlignment = Alignment.Center
@@ -3076,12 +3076,12 @@ private fun PlaylistScreen(
                         )
                     }
 
-                    Spacer(Modifier.size(9.dp))
+                    Spacer(Modifier.size(6.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = track.title,
-                            fontSize = 16.sp,
+                            fontSize = 14.sp,
                             fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
                             color = Color(0xFFF2F2F2),
                             maxLines = 1,
@@ -3097,7 +3097,7 @@ private fun PlaylistScreen(
                             Spacer(Modifier.height(1.dp))
                             Text(
                                 text = artistComposer,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 color = Color(0xFF8EA4AD),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
