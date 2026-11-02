@@ -44,6 +44,42 @@ private object MerylBackup {
         return count
     }
 
+
+    fun importStudioProject(context: Context, uri: Uri): Int {
+        val saved = File(context.filesDir, "meryl_studio/saved_projects").apply { mkdirs() }
+        val cursor = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+        val originalName = cursor?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "Projet.zip"
+        val base = originalName.substringBeforeLast('.').replace(Regex("[^a-zA-Z0-9 _-]"), "_").ifBlank { "Projet" }
+        var name = base
+        var number = 2
+        while (File(saved, name).exists()) { name = base + " (" + number++ + ")" }
+        val destination = File(saved, name).apply { mkdirs() }
+        var count = 0
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                ZipInputStream(input).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        val target = File(destination, entry.name)
+                        if (!target.canonicalPath.startsWith(destination.canonicalPath + File.separator)) error("Chemin interdit")
+                        if (!entry.isDirectory) {
+                            target.parentFile?.mkdirs()
+                            target.outputStream().use { zip.copyTo(it) }
+                            count++
+                        }
+                        zip.closeEntry()
+                        entry = zip.nextEntry
+                    }
+                }
+            } ?: error("Archive inaccessible")
+            if (!File(destination, "project.json").isFile) error("Ce ZIP n'est pas un projet Studio")
+            return count
+        } catch (e: Exception) {
+            destination.deleteRecursively()
+            throw e
+        }
+    }
+
     fun import(context: Context, uri: Uri): Pair<Int, Int> {
         val roots = mapOf("files" to context.filesDir, "shared_prefs" to File(context.applicationInfo.dataDir, "shared_prefs"))
         var imported = 0
@@ -90,6 +126,11 @@ fun GeneralBackupButton() {
             "$added fichiers récupérés, $skipped ignorés. Redémarre l'application."
         }.getOrElse { "Erreur import : ${it.message}" }
     }
+    val studioImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) status = runCatching {
+            "Projet Studio importé : " + MerylBackup.importStudioProject(context, uri) + " fichiers"
+        }.getOrElse { "Erreur import Studio : " + it.message }
+    }
     TextButton(onClick = { show = true }) { Text("Sauvegarde / Import général") }
     if (show) AlertDialog(
         onDismissRequest = { show = false },
@@ -99,6 +140,7 @@ fun GeneralBackupButton() {
                 Text("Exporte les fichiers privés et réglages de cette application. L'import ajoute les fichiers absents sans écraser ceux qui existent.")
                 Button(onClick = { show = false; export.launch("MerylCarAudio-sauvegarde.zip") }) { Text("Exporter tout (ZIP)") }
                 Button(onClick = { show = false; import.launch(arrayOf("application/zip", "application/octet-stream")) }) { Text("Importer un ZIP") }
+                Button(onClick = { show = false; studioImport.launch(arrayOf("application/zip")) }) { Text("Importer ancien projet Studio (ZIP)") }
                 if (status.isNotEmpty()) Text(status, modifier = Modifier.padding(top = 8.dp))
             }
         },
