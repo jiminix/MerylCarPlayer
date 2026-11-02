@@ -1164,7 +1164,7 @@ private fun PlayerHeader(version: String, miniStudio: Boolean = false, onMiniStu
             .fillMaxWidth()
             .height(68.dp)
             .zIndex(1f)
-            .background(Color(0xCC202830))
+            .background(Color(0xFFFFDE59))
             .padding(start = 5.dp, end = 7.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1172,11 +1172,11 @@ private fun PlayerHeader(version: String, miniStudio: Boolean = false, onMiniStu
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .background(Color(0xFF303A40), RoundedCornerShape(10.dp))
+                    .background(Color(0xFFFFDE59), RoundedCornerShape(10.dp))
                     .clickable { onMiniStudioBack?.invoke() },
                 contentAlignment = Alignment.Center
             ) {
-                Text("‹", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("‹", color = Color(0xFF202830), fontSize = 30.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.width(5.dp))
         }
@@ -1189,7 +1189,7 @@ private fun PlayerHeader(version: String, miniStudio: Boolean = false, onMiniStu
 
         Text(
             text = version,
-            color = Color(0xFFDCE3E8),
+            color = Color(0xFF202830),
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 4.dp)
