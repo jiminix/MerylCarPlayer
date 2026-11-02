@@ -19,6 +19,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.util.zip.ZipEntry
@@ -133,7 +136,7 @@ fun GeneralBackupButton() {
             "Projet Studio importé : " + MerylBackup.importStudioProject(context, uri) + " fichiers"
         }.getOrElse { "Erreur import Studio : " + it.message }
     }
-    Button(onClick = { show = true }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA726), contentColor = Color(0xFF202830)), modifier = Modifier.padding(start = 8.dp, top = 0.dp, bottom = 0.dp)) { Text("Sauvegarde / Import") }
+    Button(onClick = { show = true }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA726), contentColor = Color(0xFF202830)), modifier = Modifier.height(36.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 0.dp)) { Text("Sauv. / Import", fontSize = 10.sp, maxLines = 1) }
     if (show) AlertDialog(
         onDismissRequest = { show = false },
         title = { Text("Sauvegarde générale") },
