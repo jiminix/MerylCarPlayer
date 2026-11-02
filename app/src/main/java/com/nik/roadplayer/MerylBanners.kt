@@ -5,6 +5,8 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -44,7 +46,7 @@ fun MerylBanner(kind: MerylBannerKind, modifier: Modifier = Modifier) {
     val bitmap = remember(revision) {
         if (imageFile.isFile) BitmapFactory.decodeFile(imageFile.absolutePath) else null
     }
-    val decorated = modifier.combinedClickable(
+    val decorated = modifier.background(Color(0xFFFFDE59)).combinedClickable(
         onClick = {},
         onLongClick = { picker.launch("image/*") }
     )
