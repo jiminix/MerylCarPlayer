@@ -9,11 +9,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.nik.roadplayer.parallel"
+        applicationId = "com.nik.roadplayer.test"
         minSdk = 29
         targetSdk = 36
-        versionCode = 140
-        versionName = "1.40 parallèle"
+        versionCode = 141
+        versionName = "1.41"
     }
 
     signingConfigs {
