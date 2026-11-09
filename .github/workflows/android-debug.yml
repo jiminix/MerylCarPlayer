@@ -29,24 +29,41 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Restore fixed Android debug signing key
-        id: signing-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: merylcarplayer-debug-signing-v1
+      - name: Restore permanent 1.41 signing key from GitHub secret
+        shell: bash
+        env:
+          MERYL_141_KEYSTORE_BASE64: ${{ secrets.MERYL_141_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$MERYL_141_KEYSTORE_BASE64" ]; then
+            echo "::error::Missing MERYL_141_KEYSTORE_BASE64. No APK will be built with a new signature."
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$MERYL_141_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
 
-      - name: Stop if original signing key is missing
-        if: steps.signing-cache.outputs.cache-hit != 'true'
+      - name: Verify fixed 1.41 signing certificate
         shell: bash
         run: |
-          echo "::error::Original signing keystore cache is missing. Refusing to generate a replacement key or build an incompatible APK."
-          exit 1
+          actual="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sed -n 's/.*SHA256: //p' | head -n1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          expected="09709D467E5357C558839227131A2475628233D510F47118B5A687F2DFCD437F"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Signing certificate mismatch for MerylCarPlayer 1.41. Refusing build."
+            exit 1
+          fi
+          echo "MerylCarPlayer 1.41 certificate verified: $actual"
 
-      - name: Verify signing key
+      - name: Normalize legacy drawable filenames before Android resource merge
         shell: bash
         run: |
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E "Alias name:|SHA256:"
+          for old in "Bando haut.png" "Bando Appli_20261011_001040_0000.png"; do
+            file="app/src/main/res/drawable/$old"
+            if [ -f "$file" ]; then
+              new="$(printf '%s' "$old" | tr '[:upper:] ' '[:lower:]_' )"
+              mv "$file" "app/src/main/res/drawable/$new"
+            fi
+          done
 
       - name: Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
@@ -62,6 +79,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Meryl Car Audio
+          name: MerylCarPlayer-1.41
           path: "Meryl Car Audio.apk"
           if-no-files-found: error
