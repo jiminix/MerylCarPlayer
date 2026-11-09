@@ -12,7 +12,7 @@
     <application
         android:allowBackup="true"
         android:appCategory="audio"
-        android:label="MerylCarPlayer TEST"
+        android:label="@string/app_name"
         android:icon="@drawable/meryl_caraudio_icon_valid"
         android:roundIcon="@drawable/meryl_caraudio_icon_valid"
         android:theme="@style/Theme.RoadPlayer">
