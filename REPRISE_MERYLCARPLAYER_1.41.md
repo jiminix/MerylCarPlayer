@@ -48,3 +48,6 @@ L'utilisateur confirme avoir ajouté MERYL_141_KEYSTORE_BASE64 aux GitHub Action
 
 ## Nouveau test du secret
 L'utilisateur confirme que MERYL_141_KEYSTORE_BASE64 apparaît dans Repository secrets. Nouveau build déclenché par ce commit pour vérifier son accessibilité.
+
+## Relance du 9 novembre — secret 1.41 confirmé par l'utilisateur
+Après création du repository secret MERYL_141_KEYSTORE_BASE64, nouveau push pour relancer le build et vérifier sa réussite.
