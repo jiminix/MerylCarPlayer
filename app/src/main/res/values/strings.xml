@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MerylCarPlayer</string>
-    <string name="widget_name">MerylCarPlayer</string>
-    <string name="widget_description">Lecteur MerylCarPlayer avec pochette et commandes audio</string>
+    <string name="app_name">Meryl Car Studioplayer</string>
+    <string name="widget_name">Meryl Car Studioplayer</string>
+    <string name="widget_description">Lecteur Meryl Car Studioplayer avec pochette et commandes audio</string>
     <string name="widget_artwork">Pochette</string>
     <string name="widget_previous">Précédent</string>
     <string name="widget_play_pause">Lecture ou pause</string>
