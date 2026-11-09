@@ -1,0 +1,84 @@
+MERYL CAR PLAYER / MERYL CAR AUDIO — DOSSIER DE REPRISE GITHUB
+Date : 09 novembre 2026 (Paris)
+Dépôt : https://github.com/jiminix/MerylCarPlayer
+Branche : main
+SHA de référence AVANT ce dossier : c43d35710460b33b07aec5d887577de7192c0294
+
+OBJECTIF
+Fournir au prochain chat toutes les informations utiles pour reprendre le développement directement dans le dépôt GitHub, continuer à compiler la même application Android installée et éviter de perdre les données. Vérifier les derniers commits, les sources et les Actions en temps réel avant toute modification.
+
+1 — IDENTITÉ ANDROID / MISE À JOUR DE L'INSTALLATION EXISTANTE
+Projet : MerylCarPlayer, aussi nommé Meryl Car Audio.
+Package/applicationId : com.nik.roadplayer.test
+Namespace Kotlin : com.nik.roadplayer
+Version constatée dans app/build.gradle.kts : versionCode 138, versionName "1.38".
+Android : minSdk 29, targetSdk 36, compileSdk 36.
+Langage Kotlin, Jetpack Compose, Java 17, Gradle 8.13.
+Ne PAS changer l'applicationId ni désinstaller l'application installée. Pour installer par-dessus, l'APK doit être signée avec EXACTEMENT la même clé que la version installée. Augmenter versionCode pour une vraie nouvelle version si nécessaire, sans changer le package ni la signature.
+Workflow : https://github.com/jiminix/MerylCarPlayer/actions/workflows/android-debug.yml
+Nom du workflow : Build Meryl Car Audio APK.
+Déclenchement : push sur main ou lancement manuel (workflow_dispatch).
+Compilation : gradle :app:assembleDebug --stacktrace.
+Artifact GitHub Actions : Meryl Car Audio ; APK : Meryl Car Audio.apk.
+Le workflow restaure ~/.android/debug.keystore depuis un CACHE GitHub Actions nommé merylcarplayer-debug-signing-v1. Si le cache est absent, il CRÉE UNE NOUVELLE CLÉ. ATTENTION : cela peut casser la compatibilité de signature avec l'application déjà installée. Ne JAMAIS présumer qu'un build réussi est installable par-dessus l'ancienne version.
+Configuration de signature : merylDebug, alias androiddebugkey, mot de passe du keystore et de l'alias android.
+IMPORTANT : contrairement au Manager TS Playlist, la clé MerylCarPlayer dépend actuellement d'un cache GitHub Actions, pas d'un secret permanent garanti. PRIORITÉ : vérifier la signature SHA-256 de l'APK installée et de l'APK générée ; sécuriser la clé existante dans un secret GitHub avant expiration du cache, sans la remplacer ni exposer le keystore dans le dépôt. Si la clé originale est perdue, la mise à jour sans désinstallation peut être impossible.
+Derniers runs de build visibles le 09/11/2026 : SUCCESS, run 41622356075 (SHA 8119c78e), et SUCCESS, run 41622338551 (SHA 0c545c18), le 03/11/2026. Vérifier les runs plus récents au prochain chat.
+
+2 — ARCHITECTURE
+app/src/main/java/com/nik/roadplayer/MainActivity.kt : activité principale, interface.
+app/src/main/java/com/nik/roadplayer/MusicRepository.kt : bibliothèque musicale, scans, pochettes, albums, playlists, caches et métadonnées.
+app/src/main/java/com/nik/roadplayer/MusicModels.kt : modèles musicaux.
+app/src/main/java/com/nik/roadplayer/PlaybackService.kt : lecture en arrière-plan, Media3.
+app/src/main/java/com/nik/roadplayer/StudioScreen.kt : Mini Studio et fonctions d'enregistrement.
+app/src/main/java/com/nik/roadplayer/MerylPlayerWidget.kt : widget lecteur Android.
+app/src/main/java/com/nik/roadplayer/MerylBanners.kt : bandeaux.
+app/src/main/AndroidManifest.xml : permissions et composants Android.
+app/build.gradle.kts : package, version, dépendances, signature.
+app/src/main/res/layout/widget_meryl_player.xml : widget.
+app/src/main/res/drawable* : icônes, logos et bandeaux.
+README.md et CHANGES_V0.29.txt à CHANGES_V0.92.txt : historique des fonctions et demandes. Attention : README.md annonce encore V0.87, alors que Gradle indique 1.38 ; se fier au code actuel et à l'APK, pas seulement au README.
+
+3 — BIBLIOTHÈQUE / CARTE SD / PERFORMANCES
+MusicRepository utilise un cache persistant des tags MP3/FLAC : roadplayer_tag_cache_v1.json.
+Index persistant de bibliothèque : roadplayer_track_index_v1.json.
+Préférences de scan : roadplayer_scan_state_v1 ; roadplayer_physical_scan_v1.
+Préférences des albums : roadplayer_album_metadata, roadplayer_hidden_albums, roadplayer_album_merges.
+Préférences playlists : roadplayer_playlists.
+Pochettes mises en cache : roadplayer_covers ; pochettes personnalisées : roadplayer_custom_covers.
+Au démarrage, afficher la bibliothèque en cache immédiatement et ne lancer que les contrôles MediaStore nécessaires ; ne pas rescanner tous les fichiers MP3/FLAC ni toute la carte SD sans raison.
+Le bouton SCAN manuel permet de découvrir les fichiers copiés sur SD mais non encore indexés par Android.
+Ne pas effacer ou renommer ces fichiers/préférences sans migration sûre, sinon risque de perte d'organisation ou de ralentissement.
+
+4 — LECTEUR, WIDGET, MINI STUDIO
+Lecture musicale via AndroidX Media3 ExoPlayer et MediaLibraryService ; widget de lecture Android.
+Permissions du manifeste : INTERNET, RECORD_AUDIO, READ_MEDIA_AUDIO, READ_EXTERNAL_STORAGE jusqu'à SDK 32, FOREGROUND_SERVICE, FOREGROUND_SERVICE_MEDIA_PLAYBACK, POST_NOTIFICATIONS.
+Mini Studio à TROIS pistes (1, 2, 3), et non cinq ; les anciens fichiers pistes 4/5 ne sont pas supprimés.
+Métronome visuel TAP TEMPO, 30 à 300 BPM, lumière clignotante et bouton pause/marche ; aucun clic audio ajouté à l'export.
+CHANGES_V0.91 : boucle indépendante ↻ pour pistes 2 et 3 ; piste 1 enregistrement libre, non bouclée ; export mix répète les pistes bouclées ; compte à rebours visuel 3-2-1 sans son.
+CHANGES_V0.92 : les boucles 2/3 sont quantifiées au temps entier le plus proche du BPM, sans changer vitesse ou hauteur ; troncature/silence selon durée ; BPM verrouillé pendant décompte, enregistrement et lecture ; pas de modification destructive des fichiers source.
+Ne pas prétendre que le système corrige automatiquement la latence matérielle Android à l'échantillon près.
+
+5 — DÉPENDANCES IMPORTANTES
+Jetpack Compose (BOM 2026.06.01 dans le code observé), AndroidX Activity Compose, Media3 ExoPlayer 1.11.0, Media3 Session 1.11.0, kotlinx-coroutines-android 1.10.2, ffmpeg-kit-audio 8.1.7.
+Avant toute mise à jour de dépendance, vérifier compatibilité Gradle/Kotlin/SDK et le build réel.
+
+6 — PROCÉDURE POUR LE PROCHAIN CHAT
+1. Lire ce TXT, puis vérifier le HEAD de main et les commits récents.
+2. Lire les fichiers concernés et les derniers CHANGES ; distinguer demandes anciennes et état actuel.
+3. Vérifier l'Action de compilation et sa signature AVANT de promettre une mise à jour installable.
+4. Modifier les fichiers existants directement sur GitHub et committer sur la bonne branche.
+5. Vérifier la compilation GitHub Actions et les logs en cas d'échec.
+6. Fournir SHA, statut du build, lien vers l'APK/artifact et instructions d'installation PAR-DESSUS.
+7. Ne pas créer une nouvelle applicationId, ne pas supprimer les données ou la bibliothèque musicale.
+8. Si une évolution touche la clé de signature, NE PAS générer une clé différente : sécuriser la clé d'origine existante.
+9. Après modifications majeures, actualiser le TXT sur GitHub et en téléchargement.
+
+7 — LIENS
+Dépôt : https://github.com/jiminix/MerylCarPlayer
+Branche : https://github.com/jiminix/MerylCarPlayer/tree/main
+Build APK : https://github.com/jiminix/MerylCarPlayer/actions/workflows/android-debug.yml
+Dernier build réussi observé : https://github.com/jiminix/MerylCarPlayer/actions/runs/41622356075
+
+SÉCURITÉ
+Aucun keystore, secret privé, jeton d'authentification ou mot de passe de compte personnel n'est inclus. Les noms de variables, identifiants techniques et chemins suffisent pour la reprise. La signature exacte de l'APK installée n'a pas été mesurée dans ce dossier.
