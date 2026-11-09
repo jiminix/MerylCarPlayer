@@ -3,7 +3,7 @@ name: Build Meryl Car Audio APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, prepare-v1.41 ]
 
 jobs:
   build:
@@ -74,11 +74,11 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk "Meryl Car Audio.apk"
+        run: cp app/build/outputs/apk/debug/app-debug.apk "MerylCarPlayer-1.41.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MerylCarPlayer-1.41
-          path: "Meryl Car Audio.apk"
+          path: "MerylCarPlayer-1.41.apk"
           if-no-files-found: error
