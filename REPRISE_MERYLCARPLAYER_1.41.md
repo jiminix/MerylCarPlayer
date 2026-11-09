@@ -45,3 +45,6 @@ Commit workflow 57fb343b07dec5133344b7a2acd5fb239a94f26a sur prepare-v1.41. Un N
 
 ## 9 novembre 2026 — Relance après ajout du secret
 L'utilisateur confirme avoir ajouté MERYL_141_KEYSTORE_BASE64 aux GitHub Actions secrets. Nouveau commit sur prepare-v1.41 pour déclencher automatiquement le workflow sur push. Vérifier le résultat de cette exécution avant de donner un lien APK.
+
+## Nouveau test du secret
+L'utilisateur confirme que MERYL_141_KEYSTORE_BASE64 apparaît dans Repository secrets. Nouveau build déclenché par ce commit pour vérifier son accessibilité.
