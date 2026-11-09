@@ -215,7 +215,7 @@ class MainActivity : ComponentActivity() {
             insets
         }
         val heading = android.widget.TextView(this).apply {
-            text = "MerylCarPlayer TEST V1.26 — Diagnostic du plantage"
+            text = "Meryl Car Studioplayer V1.41 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -246,7 +246,7 @@ class MainActivity : ComponentActivity() {
             text = "Copier le diagnostic"
             setOnClickListener {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Erreur MerylCarPlayer TEST", report))
+                clipboard.setPrimaryClip(ClipData.newPlainText("Erreur Meryl Car Studioplayer", report))
                 Toast.makeText(this@MainActivity, "Diagnostic copié", Toast.LENGTH_SHORT).show()
             }
         })
@@ -281,7 +281,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.26")
+                PlayerHeader(version = "V1.41")
                 StartupLoadingBar(progress = startupProgress)
             }
         }
@@ -599,7 +599,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V1.26", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
+            PlayerHeader(version = "V1.41", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
 
         if (studioOpen) {
             StudioScreen(
