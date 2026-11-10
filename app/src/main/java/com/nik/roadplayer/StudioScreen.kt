@@ -354,7 +354,6 @@ fun StudioScreen(
             muted = muted[0],
             solo = solo[0],
             recording = recordingTrack == 0,
-            countdownBeat = if (countdownTrack == 0) countdownBeat else 0,
             controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
             timelineProgress = timelineProgress,
             timelineDurationMs = timelineDuration,
@@ -368,7 +367,6 @@ fun StudioScreen(
             onVolume = { volumes[0] = it },
             onMute = { muted[0] = !muted[0] },
             onSolo = { solo[0] = !solo[0] },
-            onRecord = { requestRecord(0) },
             onClear = {
                 engine.deleteTrack(0)
                 existing[0] = false
@@ -388,7 +386,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = "⏮",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
-                modifier = Modifier.width(48.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
                 playing = false
@@ -404,7 +402,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = "⏭",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing.any { it },
-                modifier = Modifier.width(48.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
                 playing = false
@@ -415,13 +413,13 @@ fun StudioScreen(
                 playheadMs = next
             }
 
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
 
             StudioTransportButton(
                 text = if (playing) "■" else "▶",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
                 activeColor = Color(0xFF208457),
-                modifier = Modifier.width(70.dp)
+                modifier = Modifier.weight(1.15f)
             ) {
                 if (playing) {
                     engine.stopPlayback()
@@ -443,13 +441,25 @@ fun StudioScreen(
                 }
             }
 
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
+
+            StudioTransportButton(
+                text = if (countdownTrack == 0 && countdownBeat > 0) countdownBeat.toString()
+                    else if (recordingTrack == 0) "● REC" else "REC",
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                activeColor = Color(0xFFB82020),
+                modifier = Modifier.weight(1.2f)
+            ) {
+                requestRecord(0)
+            }
+
+            Spacer(Modifier.width(4.dp))
 
             StudioTransportButton(
                 text = "■",
                 enabled = countdownTrack != null || (recordingTrack != null && !stoppingRecording) || playing,
                 activeColor = Color(0xFFB33E44),
-                modifier = Modifier.width(48.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 if (countdownTrack != null) {
                     countdownTrack = null
@@ -513,7 +523,7 @@ fun StudioScreen(
                 }
             }
 
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
 
             StudioTransportButton(
                 text = "✂",
@@ -524,7 +534,7 @@ fun StudioScreen(
                     !cleaningSilences &&
                     existing[0],
                 activeColor = Color(0xFF5D466F),
-                modifier = Modifier.width(48.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
                 playing = false
@@ -908,7 +918,6 @@ private fun StudioPrimaryTrack(
     muted: Boolean,
     solo: Boolean,
     recording: Boolean,
-    countdownBeat: Int,
     controlsEnabled: Boolean,
     timelineProgress: Float,
     timelineDurationMs: Long,
@@ -918,7 +927,6 @@ private fun StudioPrimaryTrack(
     onVolume: (Float) -> Unit,
     onMute: () -> Unit,
     onSolo: () -> Unit,
-    onRecord: () -> Unit,
     onClear: () -> Unit
 ) {
     Column(
@@ -943,14 +951,6 @@ private fun StudioPrimaryTrack(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(end = 8.dp)
             )
-            StudioMiniButton(
-                text = if (countdownBeat > 0) countdownBeat.toString() else if (recording) "●" else "REC",
-                active = recording || countdownBeat > 0,
-                enabled = controlsEnabled || recording || countdownBeat > 0,
-                activeColor = Color(0xFFB82020),
-                onClick = onRecord
-            )
-            Spacer(Modifier.width(5.dp))
             StudioMiniButton(
                 text = "M",
                 active = muted,
