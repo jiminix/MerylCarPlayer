@@ -158,6 +158,8 @@ fun StudioScreen(
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
+    var creatingNewRecord by remember { mutableStateOf(false) }
+    var recordingStartPositionMs by remember { mutableStateOf(0L) }
     var micHealthWarning by remember { mutableStateOf<String?>(null) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
 
@@ -175,7 +177,8 @@ fun StudioScreen(
 
     val storedTimelineDuration = durations.maxOrNull()?.coerceAtLeast(0L) ?: 0L
     val liveRecordingDuration = if (recordingTrack != null && recordingStartedAt > 0L) {
-        (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
+        recordingStartPositionMs +
+            (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
     } else {
         0L
     }
@@ -206,17 +209,21 @@ fun StudioScreen(
     }
 
     fun beginRecording(index: Int) {
-        if (recordingTrack != null || stoppingRecording || exporting) return
+        if (recordingTrack != null || stoppingRecording || exporting || creatingNewRecord) return
         playing = false
         engine.stopPlayback()
-        // A new take becomes the next common timeline segment.
-        playheadMs = storedTimelineDuration
-        playbackStartOffset = storedTimelineDuration
+        // Punch in at the current playhead; preserve the existing audio on both sides.
+        // In particular, REC must never jump to the end of the longest track.
+        val insertionMs = playheadMs.coerceIn(0L, storedTimelineDuration)
+        recordingStartPositionMs = insertionMs
+        playheadMs = insertionMs
+        playbackStartOffset = insertionMs
         recordingStartedAt = SystemClock.elapsedRealtime()
         beatOrigin = recordingStartedAt
         val started = engine.startRecording(
             index = index,
             settings = settings(),
+            startOffsetMs = insertionMs,
             inputGain = if (index == 0) 4f else 1f
         )
         if (!started) {
@@ -228,7 +235,8 @@ fun StudioScreen(
     }
 
     fun beginCountdown(index: Int) {
-        if (recordingTrack != null || countdownTrack != null || stoppingRecording || exporting) return
+        if (recordingTrack != null || countdownTrack != null || stoppingRecording ||
+            exporting || creatingNewRecord) return
         engine.stopPlayback()
         playing = false
         countdownTempo = tempoBpm
@@ -238,7 +246,8 @@ fun StudioScreen(
     }
 
     fun requestRecord(index: Int) {
-        if (recordingTrack != null || countdownTrack != null || stoppingRecording || exporting) return
+        if (recordingTrack != null || countdownTrack != null || stoppingRecording ||
+            exporting || creatingNewRecord) return
         if (ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
@@ -485,7 +494,8 @@ fun StudioScreen(
                     stoppingRecording = true
                     val stoppedTrack = recordingTrack
                     val recordedEndMs = if (recordingStartedAt > 0L) {
-                        (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
+                        recordingStartPositionMs +
+                            (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
                     } else {
                         playheadMs
                     }
@@ -516,18 +526,33 @@ fun StudioScreen(
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
-                            // By default, keep the playhead exactly at the end of the
-                            // recording that has just been committed to disk.
-                            playheadMs = actualDuration.takeIf { it > 0L } ?: recordedEndMs
-                            if (playheadMs > 0L && segmentEnds.none { kotlin.math.abs(it - playheadMs) < 50L }) {
-                                segmentEnds.add(playheadMs)
-                                segmentEnds.sort()
+                            // The recording is INSERTED at the seek position. The cursor
+                            // ends after the new take, not at the end of the preserved tail.
+                            playheadMs = if (recordingSaved) {
+                                engine.lastRecordingCursorMs()
+                            } else {
+                                recordingStartPositionMs.coerceAtMost(actualDuration)
+                            }
+                            if (recordingSaved) {
+                                val addedMs = engine.lastRecordingInsertedMs()
+                                if (addedMs > 0L && recordingStartPositionMs < storedTimelineDuration) {
+                                    val later = segmentEnds.map { end ->
+                                        if (end > recordingStartPositionMs) end + addedMs else end
+                                    }
+                                    segmentEnds.clear()
+                                    segmentEnds.addAll(later)
+                                }
+                                if (playheadMs > 0L &&
+                                    segmentEnds.none { kotlin.math.abs(it - playheadMs) < 50L }) {
+                                    segmentEnds.add(playheadMs)
+                                    segmentEnds.sort()
+                                }
                             }
                             playbackStartOffset = playheadMs
                             playbackStartedAt = 0L
 
                             val autoSaveName = currentProjectName
-                            if (autoSaveName.isNotBlank()) {
+                            if (recordingSaved && autoSaveName.isNotBlank()) {
                                 val autoSaveSettings = settings()
                                 val autoSaved = withContext(Dispatchers.IO) {
                                     engine.saveProject(autoSaveName, autoSaveSettings)
@@ -647,23 +672,57 @@ fun StudioScreen(
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
                 text = "UNDO",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording &&
+                    existing.any { it } && !exporting && !cleaningSilences && !creatingNewRecord,
                 activeColor = Color(0xFF8E3439),
                 modifier = Modifier.width(96.dp)
             ) {
                 engine.stopPlayback()
                 playing = false
-                engine.deleteAllTracks()
-                repeat(STUDIO_TRACK_COUNT) { index ->
-                    existing[index] = false
-                    durations[index] = 0L
-                    peaks[index] = emptyList()
+                creatingNewRecord = true
+                val nameToSave = currentProjectName.ifBlank {
+                    "Record_" + SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.FRANCE).format(Date())
                 }
-                segmentEnds.clear()
-                playheadMs = 0L
-                playbackStartOffset = 0L
-                playbackStartedAt = 0L
-                Toast.makeText(context, "Tous les enregistrements ont été effacés", Toast.LENGTH_SHORT).show()
+                val currentSettings = settings()
+                scope.launch {
+                    val savedAndCleared = withContext(Dispatchers.IO) {
+                        if (!engine.saveProject(nameToSave, currentSettings)) false
+                        else engine.startNewBlankProject()
+                    }
+                    creatingNewRecord = false
+                    if (savedAndCleared) {
+                        currentProjectName = ""
+                        projectDialogOpen = false
+                        projectName = ""
+                        repeat(STUDIO_TRACK_COUNT) { index ->
+                            existing[index] = false
+                            durations[index] = 0L
+                            peaks[index] = emptyList()
+                            volumes[index] = 1f
+                            muted[index] = false
+                            solo[index] = false
+                            looped[index] = false
+                        }
+                        tempoBpm = 120
+                        segmentEnds.clear()
+                        playheadMs = 0L
+                        recordingStartPositionMs = 0L
+                        recordingStartedAt = 0L
+                        playbackStartOffset = 0L
+                        playbackStartedAt = 0L
+                        Toast.makeText(
+                            context, "Record sauvegardé : $nameToSave • nouveau record vierge",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        // Never clear the user-facing project if saving was unsuccessful.
+                        repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
+                        Toast.makeText(
+                            context, "Impossible de sauvegarder : record conservé",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
             }
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
@@ -753,6 +812,25 @@ fun StudioScreen(
         )
 
             Spacer(Modifier.height(10.dp))
+        }
+
+        if (creatingNewRecord) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xDD10171B))
+                    .clickable { },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Sauvegarde du record et création d'un nouveau...",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(24.dp)
+                )
+            }
         }
 
         if (countdownTrack != null) {
@@ -1476,6 +1554,8 @@ private class MerylStudioEngine(private val context: Context) {
     @Volatile private var lastRecordingWarning: String? = null
     @Volatile private var liveRecordingWarning: String? = null
     private val lastRecordingSaved = AtomicBoolean(false)
+    @Volatile private var recordedCursorMs: Long = 0L
+    @Volatile private var recordedInsertedMs: Long = 0L
     private val playbackThreads = CopyOnWriteArrayList<Thread>()
 
     private fun trackFile(index: Int): File = File(projectDir, "track_" + (index + 1) + ".wav")
@@ -1531,6 +1611,7 @@ private class MerylStudioEngine(private val context: Context) {
     fun startRecording(
         index: Int,
         settings: StudioMixSettings,
+        startOffsetMs: Long = 0L,
         inputGain: Float = 1f
     ): Boolean {
         if (index !in 0 until STUDIO_TRACK_COUNT ||
@@ -1604,12 +1685,14 @@ private class MerylStudioEngine(private val context: Context) {
         }
 
         lastRecordingSaved.set(false)
+        recordedCursorMs = startOffsetMs.coerceAtLeast(0L)
+        recordedInsertedMs = 0L
         lastRecordingWarning = null
         liveRecordingWarning = null
         val safeInputGain = inputGain.coerceIn(1f, 4f)
         currentRecorder = recorder
         recording.set(true)
-        startPlayback(settings, excludeTrack = index)
+        startPlayback(settings, excludeTrack = index, startOffsetMs = startOffsetMs)
 
         val thread = Thread {
             runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO) }
@@ -1747,8 +1830,10 @@ private class MerylStudioEngine(private val context: Context) {
                 // and the orphaned .raw.tmp can still be recovered.
                 if (writtenBytes > 0L && temp.isFile && temp.length() == writtenBytes) {
                     runCatching {
-                        appendRawToWav(temp, trackFile(index))
+                        insertRawIntoWav(temp, trackFile(index), startOffsetMs)
                     }.onSuccess {
+                        recordedInsertedMs = writtenBytes / 2L * 1000L / STUDIO_SAMPLE_RATE
+                        recordedCursorMs = startOffsetMs.coerceAtLeast(0L) + recordedInsertedMs
                         lastRecordingSaved.set(true)
                         runCatching { temp.delete() }
                     }.onFailure { error ->
@@ -1792,6 +1877,10 @@ private class MerylStudioEngine(private val context: Context) {
     fun lastRecordingWarning(): String? = lastRecordingWarning
 
     fun recordingHealthWarning(): String? = liveRecordingWarning
+
+    fun lastRecordingCursorMs(): Long = recordedCursorMs
+
+    fun lastRecordingInsertedMs(): Long = recordedInsertedMs
 
     fun startPlayback(
         settings: StudioMixSettings,
@@ -2550,33 +2639,74 @@ private class MerylStudioEngine(private val context: Context) {
         }
     }
 
-    private fun appendRawToWav(raw: File, destination: File) {
-        val newDataLength = raw.length()
-        require(newDataLength > 0L && newDataLength % 2L == 0L)
-        if (!destination.isFile || destination.length() <= WAV_HEADER_SIZE) {
-            writeWavFromRaw(raw, destination)
-            return
-        }
-        val oldDataLength = destination.length() - WAV_HEADER_SIZE
-        val combinedLength = oldDataLength + newDataLength
-        require(combinedLength + 36L <= 0xFFFF_FFFFL) { "WAV size limit reached" }
-        val tempWav = File.createTempFile(destination.name + ".", ".append.tmp", projectDir)
+    // Inserts a take exactly at the playhead without destroying the previous audio.
+    // Existing samples before and after the cursor are kept; any gap on a shorter
+    // track is padded with silence so its audio stays aligned with the timeline.
+    private fun insertRawIntoWav(raw: File, destination: File, startOffsetMs: Long) {
+        val newBytes = raw.length()
+        require(newBytes > 0L && newBytes % 2L == 0L)
+        val oldBytes = if (destination.isFile && destination.length() > WAV_HEADER_SIZE) {
+            destination.length() - WAV_HEADER_SIZE
+        } else 0L
+        require(oldBytes % 2L == 0L)
+        val requestedStartBytes = startOffsetMs.coerceAtLeast(0L) *
+            STUDIO_SAMPLE_RATE.toLong() / 1000L * 2L
+        val prefixBytes = minOf(requestedStartBytes, oldBytes)
+        val paddingBytes = (requestedStartBytes - oldBytes).coerceAtLeast(0L)
+        val tailBytes = oldBytes - prefixBytes
+        val totalBytes = oldBytes + paddingBytes + newBytes
+        require(totalBytes + 36L <= 0xFFFF_FFFFL) { "WAV size limit reached" }
+
+        val tempWav = File.createTempFile(destination.name + ".", ".insert.tmp", projectDir)
         try {
             FileOutputStream(tempWav).use { fileOutput ->
                 BufferedOutputStream(fileOutput).use { output ->
-                    writeWavHeader(output, combinedLength)
-                    BufferedInputStream(FileInputStream(destination)).use { input ->
-                        skipFully(input, WAV_HEADER_SIZE.toLong())
-                        input.copyTo(output)
+                    writeWavHeader(output, totalBytes)
+                    if (oldBytes > 0L) {
+                        BufferedInputStream(FileInputStream(destination)).use { input ->
+                            skipFully(input, WAV_HEADER_SIZE.toLong())
+                            copyExactly(input, output, prefixBytes)
+                        }
+                    }
+                    if (paddingBytes > 0L) {
+                        val zeros = ByteArray(8192)
+                        var remaining = paddingBytes
+                        while (remaining > 0L) {
+                            val count = minOf(zeros.size.toLong(), remaining).toInt()
+                            output.write(zeros, 0, count)
+                            remaining -= count
+                        }
                     }
                     FileInputStream(raw).use { input -> input.copyTo(output) }
+                    if (tailBytes > 0L) {
+                        BufferedInputStream(FileInputStream(destination)).use { input ->
+                            skipFully(input, WAV_HEADER_SIZE.toLong() + prefixBytes)
+                            copyExactly(input, output, tailBytes)
+                        }
+                    }
                     output.flush()
                     fileOutput.fd.sync()
                 }
             }
-            commitWav(tempWav, destination, combinedLength)
+            commitWav(tempWav, destination, totalBytes)
         } finally {
             runCatching { tempWav.delete() }
+        }
+    }
+
+    private fun copyExactly(
+        input: java.io.InputStream,
+        output: java.io.OutputStream,
+        bytes: Long
+    ) {
+        val buffer = ByteArray(8192)
+        var remaining = bytes
+        while (remaining > 0L) {
+            val requested = minOf(remaining, buffer.size.toLong()).toInt()
+            val count = input.read(buffer, 0, requested)
+            check(count > 0) { "Source WAV truncated while inserting audio" }
+            output.write(buffer, 0, count)
+            remaining -= count
         }
     }
 
