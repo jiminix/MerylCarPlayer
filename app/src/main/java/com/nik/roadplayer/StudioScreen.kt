@@ -21,6 +21,7 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
 import android.os.SystemClock
+import android.os.Process
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -157,6 +158,7 @@ fun StudioScreen(
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
+    var micHealthWarning by remember { mutableStateOf<String?>(null) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
 
     val projectNameVoiceLauncher = rememberLauncherForActivityResult(
@@ -309,8 +311,10 @@ fun StudioScreen(
     LaunchedEffect(recordingTrack, recordingStartedAt) {
         while (recordingTrack != null && recordingStartedAt > 0L) {
             playheadMs = playbackStartOffset + (SystemClock.elapsedRealtime() - recordingStartedAt).coerceAtLeast(0L)
-            delay(40L)
+            micHealthWarning = engine.recordingHealthWarning()
+            delay(200L)
         }
+        micHealthWarning = null
     }
 
     DisposableEffect(Unit) {
@@ -348,6 +352,16 @@ fun StudioScreen(
         )
 
         Spacer(Modifier.height(5.dp))
+
+        if (recordingTrack != null && micHealthWarning != null) {
+            Text(
+                text = micHealthWarning.orEmpty(),
+                color = Color(0xFFFF8888),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
+            )
+        }
 
         StudioPrimaryTrack(
             hasAudio = existing[0],
@@ -1460,6 +1474,7 @@ private class MerylStudioEngine(private val context: Context) {
     @Volatile private var currentRecorder: AudioRecord? = null
     @Volatile private var recordThread: Thread? = null
     @Volatile private var lastRecordingWarning: String? = null
+    @Volatile private var liveRecordingWarning: String? = null
     private val lastRecordingSaved = AtomicBoolean(false)
     private val playbackThreads = CopyOnWriteArrayList<Thread>()
 
@@ -1575,14 +1590,19 @@ private class MerylStudioEngine(private val context: Context) {
 
         lastRecordingSaved.set(false)
         lastRecordingWarning = null
+        liveRecordingWarning = null
         val safeInputGain = inputGain.coerceIn(1f, 4f)
         currentRecorder = recorder
         recording.set(true)
         startPlayback(settings, excludeTrack = index)
 
         val thread = Thread {
+            runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO) }
             var writtenBytes = 0L
             var captureWarning: String? = null
+            var lastSignalAt = SystemClock.elapsedRealtime()
+            var lastRestartAt = 0L
+            var restartCount = 0
             try {
                 FileOutputStream(temp).use { fileOutput ->
                     BufferedOutputStream(fileOutput).use { output ->
@@ -1595,8 +1615,56 @@ private class MerylStudioEngine(private val context: Context) {
                                 break
                             }
                             if (count == 0) {
-                                Thread.yield()
+                                // Do not busy-spin at 100% CPU when the driver is not delivering data.
+                                Thread.sleep(10L)
                                 continue
+                            }
+
+                            val now = SystemClock.elapsedRealtime()
+                            var containsSignal = false
+                            for (i in 0 until count) {
+                                if (shorts[i] != 0.toShort()) {
+                                    containsSignal = true
+                                    break
+                                }
+                            }
+                            if (containsSignal) {
+                                lastSignalAt = now
+                                liveRecordingWarning = null
+                            } else if (recording.get() && now - lastSignalAt >= 3000L) {
+                                // Android may return zero-valued PCM while another recorder has
+                                // priority. Query its actual recording configuration (API 29+).
+                                val silencedBySystem = runCatching {
+                                    recorder.activeRecordingConfiguration?.isClientSilenced == true
+                                }.getOrDefault(false)
+                                if (silencedBySystem) {
+                                    liveRecordingWarning =
+                                        "⚠ Android coupe le micro : vérifie les autres applications utilisant le micro"
+                                    captureWarning = "Micro temporairement réduit au silence par Android"
+                                } else if (restartCount < 2 &&
+                                    (lastRestartAt == 0L || now - lastRestartAt >= 15000L)) {
+                                    // Restart the stream for a device/driver stall. Keep all
+                                    // previously captured samples and never remove the silent section.
+                                    restartCount++
+                                    lastRestartAt = now
+                                    val restarted = runCatching {
+                                        recorder.stop()
+                                        recorder.startRecording()
+                                        recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING
+                                    }.getOrDefault(false)
+                                    liveRecordingWarning = if (restarted) {
+                                        "⚠ Signal micro nul : tentative de récupération ($restartCount/2)"
+                                    } else {
+                                        "⚠ Micro interrompu : arrête REC et vérifie le micro"
+                                    }
+                                    captureWarning = "Coupure du signal micro détectée"
+                                    lastSignalAt = now
+                                    if (!restarted) break
+                                } else {
+                                    liveRecordingWarning =
+                                        "⚠ Aucun signal du micro depuis plus de 3 secondes"
+                                    captureWarning = "Silence numérique prolongé détecté"
+                                }
                             }
                             var b = 0
                             for (i in 0 until count) {
@@ -1640,6 +1708,7 @@ private class MerylStudioEngine(private val context: Context) {
                     captureWarning = "Aucune donnée audio valide enregistrée"
                 }
                 lastRecordingWarning = captureWarning
+                liveRecordingWarning = null
             }
         }
         thread.name = "MerylStudioRecord-" + (index + 1)
@@ -1671,6 +1740,8 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     fun lastRecordingWarning(): String? = lastRecordingWarning
+
+    fun recordingHealthWarning(): String? = liveRecordingWarning
 
     fun startPlayback(
         settings: StudioMixSettings,
