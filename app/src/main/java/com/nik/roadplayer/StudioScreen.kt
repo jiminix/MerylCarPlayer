@@ -1550,7 +1550,7 @@ private class MerylStudioEngine(private val context: Context) {
                 STUDIO_SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
-                max(minBuffer * 2, 16384)
+                max(minBuffer * 4, 262144)
             )
         } catch (_: Throwable) {
             return false
@@ -1577,6 +1577,20 @@ private class MerylStudioEngine(private val context: Context) {
             return false
         }
 
+        // Android can silently mute an Activity's microphone when the screen locks.
+        // A microphone foreground service keeps our capture foreground-eligible.
+        val serviceStarted = runCatching {
+            ContextCompat.startForegroundService(
+                context, Intent(context, StudioRecordingService::class.java)
+            )
+            true
+        }.getOrDefault(false)
+        if (!serviceStarted) {
+            runCatching { recorder.release() }
+            runCatching { temp.delete() }
+            return false
+        }
+
         // Confirm that Android actually started the microphone before showing REC.
         val micStarted = runCatching {
             recorder.startRecording()
@@ -1585,6 +1599,7 @@ private class MerylStudioEngine(private val context: Context) {
         if (!micStarted) {
             runCatching { recorder.release() }
             runCatching { temp.delete() }
+            context.stopService(Intent(context, StudioRecordingService::class.java))
             return false
         }
 
@@ -1601,6 +1616,7 @@ private class MerylStudioEngine(private val context: Context) {
             var writtenBytes = 0L
             var captureWarning: String? = null
             var lastSignalAt = SystemClock.elapsedRealtime()
+            var lastDataAt = lastSignalAt
             var lastRestartAt = 0L
             var restartCount = 0
             try {
@@ -1609,18 +1625,49 @@ private class MerylStudioEngine(private val context: Context) {
                         val shorts = ShortArray(max(2048, minBuffer / 2))
                         val bytes = ByteArray(shorts.size * 2)
                         while (recording.get()) {
-                            val count = recorder.read(shorts, 0, shorts.size)
+                            val count = recorder.read(
+                                shorts, 0, shorts.size, AudioRecord.READ_NON_BLOCKING
+                            )
+                            if (!recording.get()) break
                             if (count < 0) {
                                 if (recording.get()) captureWarning = "Micro interrompu (code $count)"
                                 break
                             }
                             if (count == 0) {
-                                // Do not busy-spin at 100% CPU when the driver is not delivering data.
+                                val now = SystemClock.elapsedRealtime()
+                                if (now - lastDataAt >= 3000L) {
+                                    val silencedByAndroid = runCatching {
+                                        recorder.activeRecordingConfiguration?.isClientSilenced == true
+                                    }.getOrDefault(false)
+                                    if (silencedByAndroid) {
+                                        liveRecordingWarning =
+                                            "⚠ Android coupe le micro : vérifie les applications utilisant le micro"
+                                        captureWarning = "Micro réduit au silence par Android"
+                                    } else if (restartCount < 2 &&
+                                        (lastRestartAt == 0L || now - lastRestartAt >= 15000L)) {
+                                        restartCount++
+                                        lastRestartAt = now
+                                        liveRecordingWarning =
+                                            "⚠ Le micro ne fournit plus de données : reconnexion ($restartCount/2)"
+                                        val restarted = runCatching {
+                                            recorder.stop()
+                                            recorder.startRecording()
+                                            recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING
+                                        }.getOrDefault(false)
+                                        lastDataAt = now
+                                        captureWarning = "Micro bloqué pendant l'enregistrement"
+                                        if (!restarted) break
+                                    } else {
+                                        liveRecordingWarning =
+                                            "⚠ Aucun échantillon reçu du micro depuis 3 secondes"
+                                    }
+                                }
                                 Thread.sleep(10L)
                                 continue
                             }
 
                             val now = SystemClock.elapsedRealtime()
+                            lastDataAt = now
                             var containsSignal = false
                             for (i in 0 until count) {
                                 if (shorts[i] != 0.toShort()) {
@@ -1692,6 +1739,9 @@ private class MerylStudioEngine(private val context: Context) {
                 runCatching { recorder.release() }
                 currentRecorder = null
                 stopPlayback()
+                runCatching {
+                    context.stopService(Intent(context, StudioRecordingService::class.java))
+                }
 
                 // Never delete raw audio on failure. The original WAV remains untouched,
                 // and the orphaned .raw.tmp can still be recovered.
