@@ -745,7 +745,10 @@ fun StudioScreen(
                     Toast.makeText(context, "Aucun projet enregistré", Toast.LENGTH_SHORT).show()
                 } else {
                     projectName = ""
+                    engine.stopPlayback()
+                    playing = false
                     previewingProject = null
+                    previewSequence++
                     projectDialogOpen = true
                 }
             }
@@ -872,7 +875,14 @@ fun StudioScreen(
 
     if (projectDialogOpen) {
         AlertDialog(
-            onDismissRequest = { projectDialogOpen = false },
+            onDismissRequest = {
+                if (!projectBusy) {
+                    if (previewingProject != null) engine.stopPlayback()
+                    previewingProject = null
+                    previewSequence++
+                    projectDialogOpen = false
+                }
+            },
             title = {
                 Text(
                     if (projectName.isNotEmpty()) "Sauvegarder le projet" else "Ouvrir un projet",
@@ -2252,7 +2262,7 @@ private class MerylStudioEngine(private val context: Context) {
             val volume = volumes.getOrElse(index) { 1f }.coerceIn(0f, 1f)
             val thread = Thread {
                 streamWavFile(file, volume, 0L, false, 120, generation)
-            }.apply { name = "MerylStudioPreview-${index + 1}" }
+            }.apply { this.name = "MerylStudioPreview-${index + 1}" }
             playbackThreads.add(thread)
             thread.start()
         }
