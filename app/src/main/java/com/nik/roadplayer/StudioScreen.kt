@@ -720,7 +720,7 @@ fun StudioScreen(
                         playbackStartOffset = 0L
                         playbackStartedAt = 0L
                         Toast.makeText(
-                            context, "Record sauvegardé : $nameToSave • nouveau record vierge",
+                            context, "Record sauvegardé : ${engine.projectDisplayName(nameToSave)} • nouveau record vierge",
                             Toast.LENGTH_LONG
                         ).show()
                     } else {
@@ -2184,6 +2184,134 @@ private class MerylStudioEngine(private val context: Context) {
             ?.sortedDescending()
             ?: emptyList()
 
+    // Project IDs are filesystem-safe and unique; display names may contain slashes.
+    // The automatic display format matches the requested "H:mm -dd/MM/yy".
+    fun projectDisplayName(name: String): String {
+        val project = File(savedProjectsDir, name)
+        val explicit = runCatching {
+            val json = JSONObject(File(project, "project.json").readText())
+            json.optString("display_name").trim()
+        }.getOrDefault("")
+        if (explicit.isNotBlank()) return explicit
+        if (name.startsWith("Record_")) {
+            val value = name.removePrefix("Record_")
+            val formatted = runCatching {
+                val date = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.FRANCE)
+                    .apply { isLenient = false }
+                    .parse(value) ?: return@runCatching null
+                SimpleDateFormat("H:mm -dd/MM/yy", Locale.FRANCE).format(date)
+            }.getOrNull()
+            if (formatted != null) return formatted
+        }
+        return name
+    }
+
+    fun projectSizeLabel(name: String): String {
+        val dir = File(savedProjectsDir, name)
+        val bytes = dir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+        return if (bytes >= 1024 * 1024) {
+            String.format(Locale.FRANCE, "%.1f Mo", bytes / (1024.0 * 1024.0))
+        } else {
+            String.format(Locale.FRANCE, "%.0f Ko", bytes / 1024.0)
+        }
+    }
+
+    // Preview the saved WAV tracks directly; loading a project is NOT required.
+    // Stops automatically after at most 20 seconds, or on the next selection.
+    fun previewSavedProject(name: String): Long {
+        stopPlayback()
+        val dir = File(savedProjectsDir, name)
+        if (!dir.isDirectory) return 0L
+        val available = (0 until STUDIO_TRACK_COUNT).filter { index ->
+            val file = File(dir, "track_${index + 1}.wav")
+            file.isFile && file.length() > WAV_HEADER_SIZE
+        }
+        if (available.isEmpty()) return 0L
+
+        val json = runCatching { JSONObject(File(dir, "project.json").readText()) }.getOrNull()
+        val volumes = json?.optString("volumes")?.split(",")
+            ?.mapNotNull { it.toFloatOrNull() }.orEmpty()
+        val muted = json?.optString("muted")?.split(",")
+            ?.map { it.toBoolean() }.orEmpty()
+        val solo = json?.optString("solo")?.split(",")
+            ?.map { it.toBoolean() }.orEmpty()
+        val anySolo = available.any { solo.getOrElse(it) { false } }
+        val selected = available.filter {
+            (!anySolo || solo.getOrElse(it) { false }) && !muted.getOrElse(it) { false }
+        }
+        if (selected.isEmpty()) return 0L
+        val longestMs = selected.maxOf { index ->
+            val file = File(dir, "track_${index + 1}.wav")
+            ((file.length() - WAV_HEADER_SIZE) / 2L) * 1000L / STUDIO_SAMPLE_RATE
+        }
+        val playbackMs = minOf(20_000L, longestMs)
+        if (playbackMs <= 0L) return 0L
+        val generation = playbackGeneration.get()
+        selected.forEach { index ->
+            val file = File(dir, "track_${index + 1}.wav")
+            val volume = volumes.getOrElse(index) { 1f }.coerceIn(0f, 1f)
+            val thread = Thread {
+                streamWavFile(file, volume, 0L, false, 120, generation)
+            }.apply { name = "MerylStudioPreview-${index + 1}" }
+            playbackThreads.add(thread)
+            thread.start()
+        }
+        return (playbackMs + 999L) / 1000L
+    }
+
+    @Synchronized
+    fun renameSavedProject(name: String, newDisplayName: String): Boolean {
+        if (recording.get() || recordThread?.isAlive == true) return false
+        val value = newDisplayName.trim()
+        if (value.isEmpty() || value.length > 120) return false
+        val dir = File(savedProjectsDir, name)
+        if (!dir.isDirectory || name.startsWith(".")) return false
+        val file = File(dir, "project.json")
+        val updated = runCatching {
+            val json = if (file.isFile) JSONObject(file.readText()) else JSONObject()
+            json.put("display_name", value)
+            val staged = File.createTempFile(".project_", ".tmp", dir)
+            try {
+                FileOutputStream(staged).use {
+                    it.write(json.toString().toByteArray(Charsets.UTF_8))
+                    it.fd.sync()
+                }
+                try {
+                    Files.move(staged.toPath(), file.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(staged.toPath(), file.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING)
+                }
+            } finally {
+                runCatching { staged.delete() }
+            }
+            true
+        }.getOrDefault(false)
+        if (updated && currentProjectName() == name) {
+            runCatching {
+                file.copyTo(File(projectDir, "project.json"), overwrite = true)
+            }
+        }
+        return updated
+    }
+
+    @Synchronized
+    fun deleteSavedProject(name: String): Boolean {
+        if (recording.get() || recordThread?.isAlive == true) return false
+        val dir = File(savedProjectsDir, name)
+        if (!dir.isDirectory || name.startsWith(".")) return false
+        stopPlayback()
+        val trash = File(savedProjectsDir, ".deleting_" + System.nanoTime())
+        if (!dir.renameTo(trash)) return false
+        if (!trash.deleteRecursively()) {
+            runCatching { trash.renameTo(dir) }
+            return false
+        }
+        if (currentProjectName() == name) rememberCurrentProject("")
+        return true
+    }
+
     // Stage a complete record in a separate directory and replace the old
     // snapshot only after every WAV and project.json have been copied.
     // A failed copy must never delete an earlier SAVE / UNDO record.
@@ -2195,6 +2323,11 @@ private class MerylStudioEngine(private val context: Context) {
             .trim('.')
             .ifBlank { "Record" }
         val destination = File(savedProjectsDir, cleaned)
+        // A title edited from OPEN must survive subsequent SAVE and automatic saves.
+        val previousDisplayName = runCatching {
+            JSONObject(File(destination, "project.json").readText())
+                .optString("display_name").trim()
+        }.getOrDefault("")
         val stage = File.createTempFile(".record_stage_", ".tmp", savedProjectsDir)
         if (!stage.delete() || !stage.mkdirs()) return false
         val backup = File(savedProjectsDir, ".record_previous_" + System.nanoTime())
@@ -2216,6 +2349,9 @@ private class MerylStudioEngine(private val context: Context) {
                 put("muted", settings.muted.joinToString(","))
                 put("solo", settings.solo.joinToString(","))
                 put("looped", settings.looped.joinToString(","))
+                if (previousDisplayName.isNotBlank()) {
+                    put("display_name", previousDisplayName)
+                }
             }.toString()
             File(stage, "project.json").writeText(json)
 
