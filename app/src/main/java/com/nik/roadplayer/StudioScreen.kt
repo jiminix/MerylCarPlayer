@@ -79,6 +79,9 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.AtomicMoveNotSupportedException
 import kotlin.math.roundToLong
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -473,9 +476,10 @@ fun StudioScreen(
                         playheadMs
                     }
                     scope.launch {
-                        withContext(Dispatchers.IO) {
+                        val recordingSaved = withContext(Dispatchers.IO) {
                             engine.stopRecordingBlocking()
                         }
+                        val recordingWarning = engine.lastRecordingWarning()
                         recordingTrack = null
                         recordingStartedAt = 0L
                         stoppingRecording = false
@@ -489,6 +493,14 @@ fun StudioScreen(
                                 peaks[track] = withContext(Dispatchers.IO) {
                                     engine.trackPeaks(track, 96)
                                 }
+                            }
+                            if (!recordingSaved || recordingWarning != null) {
+                                Toast.makeText(
+                                    context,
+                                    if (recordingSaved) "Prise partielle sauvegardée : ${recordingWarning ?: "micro interrompu"}"
+                                    else "Enregistrement non sauvegardé : audio brut conservé pour récupération",
+                                    Toast.LENGTH_LONG
+                                ).show()
                             }
                             // By default, keep the playhead exactly at the end of the
                             // recording that has just been committed to disk.
@@ -1445,8 +1457,10 @@ private class MerylStudioEngine(private val context: Context) {
     private val studioPrefs = context.getSharedPreferences("meryl_studio", Context.MODE_PRIVATE)
     private val recording = AtomicBoolean(false)
     private val playbackGeneration = AtomicInteger(0)
-    private var currentRecorder: AudioRecord? = null
-    private var recordThread: Thread? = null
+    @Volatile private var currentRecorder: AudioRecord? = null
+    @Volatile private var recordThread: Thread? = null
+    @Volatile private var lastRecordingWarning: String? = null
+    private val lastRecordingSaved = AtomicBoolean(false)
     private val playbackThreads = CopyOnWriteArrayList<Thread>()
 
     private fun trackFile(index: Int): File = File(projectDir, "track_" + (index + 1) + ".wav")
@@ -1496,13 +1510,16 @@ private class MerylStudioEngine(private val context: Context) {
         return values.toList()
     }
 
+    // One recording worker owns its uniquely named raw file until the WAV is safely committed.
+    // Never start another take while the previous worker is still finalizing a long append.
     @SuppressLint("MissingPermission")
     fun startRecording(
         index: Int,
         settings: StudioMixSettings,
         inputGain: Float = 1f
     ): Boolean {
-        if (index !in 0 until STUDIO_TRACK_COUNT || recording.get()) return false
+        if (index !in 0 until STUDIO_TRACK_COUNT ||
+            recording.get() || recordThread?.isAlive == true) return false
         stopPlayback()
 
         val minBuffer = AudioRecord.getMinBufferSize(
@@ -1529,8 +1546,7 @@ private class MerylStudioEngine(private val context: Context) {
             return false
         }
 
-        // Keep REC on the phone's built-in microphone even when USB-C audio is connected.
-        // Playback/output routing remains managed by Android and can continue through the car stereo.
+        // Prefer the built-in mic even when USB-C audio is connected.
         runCatching {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val builtInMic = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
@@ -1538,72 +1554,123 @@ private class MerylStudioEngine(private val context: Context) {
             if (builtInMic != null) recorder.setPreferredDevice(builtInMic)
         }
 
-        val temp = rawTempFile(index)
-        runCatching { temp.delete() }
+        // Unique temporary files prevent one take from erasing an earlier unfinished capture.
+        val temp = runCatching {
+            File.createTempFile("track_${index + 1}_", ".raw.tmp", projectDir)
+        }.getOrElse {
+            runCatching { recorder.release() }
+            return false
+        }
+
+        // Confirm that Android actually started the microphone before showing REC.
+        val micStarted = runCatching {
+            recorder.startRecording()
+            recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING
+        }.getOrDefault(false)
+        if (!micStarted) {
+            runCatching { recorder.release() }
+            runCatching { temp.delete() }
+            return false
+        }
+
+        lastRecordingSaved.set(false)
+        lastRecordingWarning = null
         val safeInputGain = inputGain.coerceIn(1f, 4f)
-
-        startPlayback(settings, excludeTrack = index)
-
         currentRecorder = recorder
         recording.set(true)
+        startPlayback(settings, excludeTrack = index)
 
         val thread = Thread {
-            var ok = false
+            var writtenBytes = 0L
+            var captureWarning: String? = null
             try {
-                BufferedOutputStream(FileOutputStream(temp)).use { output ->
-                    recorder.startRecording()
-                    val shorts = ShortArray(max(2048, minBuffer / 2))
-                    val bytes = ByteArray(shorts.size * 2)
-                    while (recording.get()) {
-                        val count = recorder.read(shorts, 0, shorts.size)
-                        if (count <= 0) continue
-                        var b = 0
-                        for (i in 0 until count) {
-                            val rawSample = shorts[i].toInt()
-                            val sample = if (safeInputGain > 1f) {
-                                (rawSample * safeInputGain).roundToInt().coerceIn(-32768, 32767)
-                            } else rawSample
-                            bytes[b++] = (sample and 0xFF).toByte()
-                            bytes[b++] = ((sample shr 8) and 0xFF).toByte()
+                FileOutputStream(temp).use { fileOutput ->
+                    BufferedOutputStream(fileOutput).use { output ->
+                        val shorts = ShortArray(max(2048, minBuffer / 2))
+                        val bytes = ByteArray(shorts.size * 2)
+                        while (recording.get()) {
+                            val count = recorder.read(shorts, 0, shorts.size)
+                            if (count < 0) {
+                                if (recording.get()) captureWarning = "Micro interrompu (code $count)"
+                                break
+                            }
+                            if (count == 0) {
+                                Thread.yield()
+                                continue
+                            }
+                            var b = 0
+                            for (i in 0 until count) {
+                                val rawSample = shorts[i].toInt()
+                                val sample = if (safeInputGain > 1f) {
+                                    (rawSample * safeInputGain).roundToInt().coerceIn(-32768, 32767)
+                                } else rawSample
+                                bytes[b++] = (sample and 0xFF).toByte()
+                                bytes[b++] = ((sample shr 8) and 0xFF).toByte()
+                            }
+                            output.write(bytes, 0, count * 2)
+                            writtenBytes += count * 2L
                         }
-                        output.write(bytes, 0, count * 2)
+                        output.flush()
+                        fileOutput.fd.sync()
                     }
-                    ok = temp.length() > 0L
                 }
-            } catch (_: Throwable) {
-                ok = false
+            } catch (error: Throwable) {
+                captureWarning = "Écriture audio interrompue : ${error.javaClass.simpleName}"
             } finally {
+                recording.set(false)
                 runCatching {
                     if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) recorder.stop()
                 }
                 runCatching { recorder.release() }
                 currentRecorder = null
-                recording.set(false)
                 stopPlayback()
-                if (ok) {
-                    val destination = trackFile(index)
+
+                // Never delete raw audio on failure. The original WAV remains untouched,
+                // and the orphaned .raw.tmp can still be recovered.
+                if (writtenBytes > 0L && temp.isFile && temp.length() == writtenBytes) {
                     runCatching {
-                        appendRawToWav(temp, destination)
+                        appendRawToWav(temp, trackFile(index))
+                    }.onSuccess {
+                        lastRecordingSaved.set(true)
+                        runCatching { temp.delete() }
+                    }.onFailure { error ->
+                        captureWarning = "Sauvegarde WAV impossible : ${error.javaClass.simpleName}"
                     }
+                } else if (captureWarning == null) {
+                    captureWarning = "Aucune donnée audio valide enregistrée"
                 }
-                runCatching { temp.delete() }
+                lastRecordingWarning = captureWarning
             }
         }
         thread.name = "MerylStudioRecord-" + (index + 1)
-        thread.start()
         recordThread = thread
+        thread.start()
         return true
     }
 
-    fun stopRecordingBlocking(): Boolean {
-        if (!recording.get()) return false
+    private fun requestStopRecording() {
         recording.set(false)
         runCatching { currentRecorder?.stop() }
-        runCatching { recordThread?.join(2500L) }
-        recordThread = null
         stopPlayback()
-        return true
     }
+
+    // Called from Dispatchers.IO: wait until the entire audio file is safely committed,
+    // not an arbitrary 2.5-second timeout. UI remains in stopping state during the wait.
+    fun stopRecordingBlocking(): Boolean {
+        val worker = recordThread ?: return false
+        requestStopRecording()
+        if (Thread.currentThread() == worker) return false
+        try {
+            worker.join()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+        if (recordThread === worker) recordThread = null
+        return lastRecordingSaved.get()
+    }
+
+    fun lastRecordingWarning(): String? = lastRecordingWarning
 
     fun startPlayback(
         settings: StudioMixSettings,
@@ -1657,8 +1724,10 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     fun stopAll() {
-        if (recording.get()) {
-            stopRecordingBlocking()
+        // Compose may call this on the UI thread. Request a stop without blocking it;
+        // the dedicated worker still finalizes and commits its raw capture.
+        if (recording.get() || recordThread?.isAlive == true) {
+            requestStopRecording()
         } else {
             stopPlayback()
         }
@@ -1671,8 +1740,9 @@ private class MerylStudioEngine(private val context: Context) {
             ?.sortedDescending()
             ?: emptyList()
 
+    @Synchronized
     fun saveProject(requestedName: String, settings: StudioMixSettings): Boolean {
-        if (recording.get()) return false
+        if (recording.get() || recordThread?.isAlive == true) return false
         val safeName = requestedName.trim()
             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
             .ifBlank { "Projet" }
@@ -1738,13 +1808,13 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     fun deleteTrack(index: Int) {
-        if (recording.get()) return
+        if (recording.get() || recordThread?.isAlive == true) return
         runCatching { trackFile(index).delete() }
         runCatching { rawTempFile(index).delete() }
     }
 
     fun deleteAllTracks() {
-        if (recording.get()) return
+        if (recording.get() || recordThread?.isAlive == true) return
         stopPlayback()
         repeat(STUDIO_TRACK_COUNT) { index ->
             runCatching { trackFile(index).delete() }
@@ -1932,7 +2002,8 @@ private class MerylStudioEngine(private val context: Context) {
     }
 
     fun removeLongSilences(index: Int): Long {
-        if (recording.get() || index !in 0 until STUDIO_TRACK_COUNT) return -1L
+        if (recording.get() || recordThread?.isAlive == true ||
+            index !in 0 until STUDIO_TRACK_COUNT) return -1L
         val source = trackFile(index)
         if (!source.isFile || source.length() <= WAV_HEADER_SIZE) return -1L
 
@@ -2042,7 +2113,17 @@ private class MerylStudioEngine(private val context: Context) {
         }
 
         return runCatching {
-            writeWavFromRaw(tempRaw, source)
+            // Keep a full copy of the original before destructive silence trimming.
+            // Each backup has a unique name so repeated cleaning cannot erase an earlier take.
+            val backup = File.createTempFile("track_${index + 1}_", ".before_silences.wav", projectDir)
+            try {
+                source.copyTo(backup, overwrite = true)
+                check(backup.length() == source.length()) { "Silence backup incomplete" }
+                writeWavFromRaw(tempRaw, source)
+            } catch (error: Throwable) {
+                runCatching { backup.delete() }
+                throw error
+            }
             removedBytes / 2L * 1000L / STUDIO_SAMPLE_RATE
         }.getOrElse { -1L }.also {
             runCatching { tempRaw.delete() }
@@ -2330,40 +2411,71 @@ private class MerylStudioEngine(private val context: Context) {
         }
     }
 
+    // Use a complete temporary WAV and a filesystem replacement operation.
+    // Never delete the existing recording before the replacement is ready.
+    private fun commitWav(tempWav: File, destination: File, expectedDataBytes: Long) {
+        require(expectedDataBytes > 0L && expectedDataBytes % 2L == 0L)
+        require(expectedDataBytes + 36L <= 0xFFFF_FFFFL) { "WAV size limit reached" }
+        check(tempWav.isFile && tempWav.length() == WAV_HEADER_SIZE + expectedDataBytes) {
+            "Incomplete temporary WAV"
+        }
+        try {
+            Files.move(
+                tempWav.toPath(), destination.toPath(),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(tempWav.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
     private fun appendRawToWav(raw: File, destination: File) {
+        val newDataLength = raw.length()
+        require(newDataLength > 0L && newDataLength % 2L == 0L)
         if (!destination.isFile || destination.length() <= WAV_HEADER_SIZE) {
             writeWavFromRaw(raw, destination)
             return
         }
-        val existingDataLength = (destination.length() - WAV_HEADER_SIZE).coerceAtLeast(0L)
-        val newDataLength = raw.length()
-        val tempWav = File(destination.parentFile, destination.name + ".append.tmp")
-        BufferedOutputStream(FileOutputStream(tempWav)).use { output ->
-            writeWavHeader(output, existingDataLength + newDataLength)
-            BufferedInputStream(FileInputStream(destination)).use { input ->
-                skipFully(input, WAV_HEADER_SIZE.toLong())
-                input.copyTo(output)
+        val oldDataLength = destination.length() - WAV_HEADER_SIZE
+        val combinedLength = oldDataLength + newDataLength
+        require(combinedLength + 36L <= 0xFFFF_FFFFL) { "WAV size limit reached" }
+        val tempWav = File.createTempFile(destination.name + ".", ".append.tmp", projectDir)
+        try {
+            FileOutputStream(tempWav).use { fileOutput ->
+                BufferedOutputStream(fileOutput).use { output ->
+                    writeWavHeader(output, combinedLength)
+                    BufferedInputStream(FileInputStream(destination)).use { input ->
+                        skipFully(input, WAV_HEADER_SIZE.toLong())
+                        input.copyTo(output)
+                    }
+                    FileInputStream(raw).use { input -> input.copyTo(output) }
+                    output.flush()
+                    fileOutput.fd.sync()
+                }
             }
-            FileInputStream(raw).use { input -> input.copyTo(output) }
-        }
-        if (destination.exists()) destination.delete()
-        if (!tempWav.renameTo(destination)) {
-            tempWav.copyTo(destination, overwrite = true)
-            tempWav.delete()
+            commitWav(tempWav, destination, combinedLength)
+        } finally {
+            runCatching { tempWav.delete() }
         }
     }
 
     private fun writeWavFromRaw(raw: File, destination: File) {
         val dataLength = raw.length()
-        val tempWav = File(destination.parentFile, destination.name + ".tmp")
-        BufferedOutputStream(FileOutputStream(tempWav)).use { output ->
-            writeWavHeader(output, dataLength)
-            FileInputStream(raw).use { input -> input.copyTo(output) }
-        }
-        if (destination.exists()) destination.delete()
-        if (!tempWav.renameTo(destination)) {
-            tempWav.copyTo(destination, overwrite = true)
-            tempWav.delete()
+        require(dataLength > 0L && dataLength % 2L == 0L)
+        require(dataLength + 36L <= 0xFFFF_FFFFL) { "WAV size limit reached" }
+        val tempWav = File.createTempFile(destination.name + ".", ".wav.tmp", projectDir)
+        try {
+            FileOutputStream(tempWav).use { fileOutput ->
+                BufferedOutputStream(fileOutput).use { output ->
+                    writeWavHeader(output, dataLength)
+                    FileInputStream(raw).use { input -> input.copyTo(output) }
+                    output.flush()
+                    fileOutput.fd.sync()
+                }
+            }
+            commitWav(tempWav, destination, dataLength)
+        } finally {
+            runCatching { tempWav.delete() }
         }
     }
 
