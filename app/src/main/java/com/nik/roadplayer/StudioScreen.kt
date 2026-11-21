@@ -1945,24 +1945,36 @@ private class MerylStudioEngine(private val context: Context) {
 
     fun listProjects(): List<String> =
         savedProjectsDir.listFiles()
-            ?.filter { it.isDirectory }
+            ?.filter { it.isDirectory && !it.name.startsWith(".") }
             ?.map { it.name }
             ?.sortedDescending()
             ?: emptyList()
 
+    // Stage a complete record in a separate directory and replace the old
+    // snapshot only after every WAV and project.json have been copied.
+    // A failed copy must never delete an earlier SAVE / UNDO record.
     @Synchronized
     fun saveProject(requestedName: String, settings: StudioMixSettings): Boolean {
         if (recording.get() || recordThread?.isAlive == true) return false
-        val safeName = requestedName.trim()
-            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            .ifBlank { "Projet" }
-        val destination = File(savedProjectsDir, safeName)
+        val cleaned = requestedName.trim()
+            .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
+            .trim('.')
+            .ifBlank { "Record" }
+        val destination = File(savedProjectsDir, cleaned)
+        val stage = File.createTempFile(".record_stage_", ".tmp", savedProjectsDir)
+        if (!stage.delete() || !stage.mkdirs()) return false
+        val backup = File(savedProjectsDir, ".record_previous_" + System.nanoTime())
+        var oldRenamed = false
         val saved = runCatching {
-            if (destination.exists()) destination.deleteRecursively()
-            destination.mkdirs()
             repeat(STUDIO_TRACK_COUNT) { index ->
                 val source = trackFile(index)
-                if (source.isFile) source.copyTo(File(destination, source.name), overwrite = true)
+                if (source.isFile) {
+                    val snapshot = File(stage, source.name)
+                    source.copyTo(snapshot, overwrite = true)
+                    check(snapshot.length() == source.length()) {
+                        "Incomplete record backup"
+                    }
+                }
             }
             val json = JSONObject().apply {
                 put("bpm", settings.bpm)
@@ -1971,14 +1983,53 @@ private class MerylStudioEngine(private val context: Context) {
                 put("solo", settings.solo.joinToString(","))
                 put("looped", settings.looped.joinToString(","))
             }.toString()
-            File(destination, "project.json").writeText(json)
-            File(projectDir, "project.json").writeText(json)
+            File(stage, "project.json").writeText(json)
+
+            if (destination.exists()) {
+                check(destination.renameTo(backup)) { "Cannot protect previous saved record" }
+                oldRenamed = true
+            }
+            check(stage.renameTo(destination)) { "Cannot commit saved record" }
             true
         }.getOrDefault(false)
-        if (!saved) return false
 
-        rememberCurrentProject(safeName)
-        return publishProjectMp3(settings, safeName)
+        if (!saved) {
+            // Never discard the earlier snapshot, even if committing the new one fails.
+            if (oldRenamed && !destination.exists()) runCatching { backup.renameTo(destination) }
+            runCatching { stage.deleteRecursively() }
+            return false
+        }
+
+        if (oldRenamed) runCatching { backup.deleteRecursively() }
+        runCatching { File(projectDir, "project.json")
+            .writeText(File(destination, "project.json").readText()) }
+        rememberCurrentProject(cleaned)
+
+        // Publishing the listening MP3 is optional: a codec/MediaStore failure
+        // must not make a completely saved editable record appear unsaved.
+        runCatching { publishProjectMp3(settings, cleaned) }
+        return true
+    }
+
+    // Called only after saveProject has committed a complete snapshot.
+    // Rename the working directory out of the way before opening a blank one.
+    // A failed reset restores the previous working directory.
+    @Synchronized
+    fun startNewBlankProject(): Boolean {
+        if (recording.get() || recordThread?.isAlive == true) return false
+        stopPlayback()
+        val recovery = File(projectDir.parentFile, ".record_recovery_" + System.nanoTime())
+        if (projectDir.exists() && !projectDir.renameTo(recovery)) return false
+        if (!projectDir.mkdirs()) {
+            runCatching { recovery.renameTo(projectDir) }
+            return false
+        }
+        rememberCurrentProject("")
+        // Keep any orphaned raw audio for recovery after earlier microphone errors.
+        val hasRecoverableAudio = recovery.walkTopDown()
+            .any { it.isFile && it.name.endsWith(".raw.tmp") }
+        if (!hasRecoverableAudio) runCatching { recovery.deleteRecursively() }
+        return true
     }
 
     fun loadProject(name: String): Boolean {
