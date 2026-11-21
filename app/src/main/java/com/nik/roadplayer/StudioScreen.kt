@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -68,6 +69,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -156,6 +158,12 @@ fun StudioScreen(
     var projectDialogOpen by remember { mutableStateOf(false) }
     var projectName by remember { mutableStateOf("") }
     var projectList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var previewingProject by remember { mutableStateOf<String?>(null) }
+    var previewSequence by remember { mutableStateOf(0) }
+    var renamingProject by remember { mutableStateOf<String?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deletingProject by remember { mutableStateOf<String?>(null) }
+    var projectBusy by remember { mutableStateOf(false) }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
     var creatingNewRecord by remember { mutableStateOf(false) }
@@ -680,6 +688,7 @@ fun StudioScreen(
                 engine.stopPlayback()
                 playing = false
                 creatingNewRecord = true
+                // Internal key stays unique; OPEN displays "H:mm -dd/MM/yy".
                 val nameToSave = currentProjectName.ifBlank {
                     "Record_" + SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.FRANCE).format(Date())
                 }
@@ -736,6 +745,7 @@ fun StudioScreen(
                     Toast.makeText(context, "Aucun projet enregistré", Toast.LENGTH_SHORT).show()
                 } else {
                     projectName = ""
+                    previewingProject = null
                     projectDialogOpen = true
                 }
             }
@@ -863,7 +873,13 @@ fun StudioScreen(
     if (projectDialogOpen) {
         AlertDialog(
             onDismissRequest = { projectDialogOpen = false },
-            title = { Text(if (projectName.isNotEmpty()) "Sauvegarder le projet" else "Ouvrir un projet", fontWeight = FontWeight.Bold) },
+            title = {
+                Text(
+                    if (projectName.isNotEmpty()) "Sauvegarder le projet" else "Ouvrir un projet",
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1A1820)
+                )
+            },
             text = {
                 if (projectName.isNotEmpty()) {
                     Row(
@@ -899,37 +915,160 @@ fun StudioScreen(
                         }
                     }
                 } else {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 440.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = "${projectList.size} projet(s) enregistré(s) — faites défiler la liste",
+                            color = Color(0xFF35343B),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(12.dp))
                         projectList.forEach { name ->
-                            Text(
-                                text = name,
-                                color = Color.White,
+                            val displayName = engine.projectDisplayName(name)
+                            val sizeLabel = engine.projectSizeLabel(name)
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        engine.stopPlayback()
-                                        playing = false
-                                        if (engine.loadProject(name)) {
-                                            currentProjectName = engine.currentProjectName()
-                                            segmentEnds.clear()
-                                            repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
-                                            val loaded = engine.loadProjectSettings()
-                                            loaded?.let { s ->
-                                                repeat(STUDIO_TRACK_COUNT) { i ->
-                                                    volumes[i] = s.volumes.getOrElse(i) { 1f }
-                                                    muted[i] = s.muted.getOrElse(i) { false }
-                                                    solo[i] = s.solo.getOrElse(i) { false }
-                                                    looped[i] = s.looped.getOrElse(i) { false }
+                                    .padding(bottom = 10.dp)
+                                    .background(
+                                        Color(0xFFFFF1C7),
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = displayName,
+                                    color = Color(0xFF171B25),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(5.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(
+                                        enabled = !projectBusy,
+                                        onClick = {
+                                            if (previewingProject == name) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
+                                                previewSequence++
+                                            } else {
+                                                engine.stopPlayback()
+                                                previewSequence++
+                                                val sequence = previewSequence
+                                                val seconds = engine.previewSavedProject(name)
+                                                if (seconds > 0L) {
+                                                    previewingProject = name
+                                                    scope.launch {
+                                                        delay(seconds * 1000L)
+                                                        if (previewSequence == sequence &&
+                                                            previewingProject == name) {
+                                                            engine.stopPlayback()
+                                                            previewingProject = null
+                                                        }
+                                                    }
+                                                } else {
+                                                    previewingProject = null
+                                                    Toast.makeText(
+                                                        context, "Aucun son à pré-écouter", Toast.LENGTH_SHORT
+                                                    ).show()
                                                 }
-                                                tempoBpm = s.bpm
                                             }
-                                            playheadMs = (0 until STUDIO_TRACK_COUNT).maxOfOrNull { engine.trackDurationMs(it) } ?: 0L
-                                            Toast.makeText(context, "Projet ouvert : $name", Toast.LENGTH_SHORT).show()
                                         }
-                                        projectDialogOpen = false
+                                    ) {
+                                        Text(
+                                            if (previewingProject == name) "■" else "▶",
+                                            color = Color(0xFF173C65),
+                                            fontSize = 25.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
-                                    .padding(vertical = 10.dp)
-                            )
+                                    TextButton(
+                                        enabled = !projectBusy,
+                                        onClick = {
+                                            if (previewingProject != null) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
+                                                previewSequence++
+                                            }
+                                            renamingProject = name
+                                            renameText = displayName
+                                        }
+                                    ) {
+                                        Text("✎", color = Color(0xFF173C65), fontSize = 26.sp)
+                                    }
+                                    TextButton(
+                                        enabled = !projectBusy,
+                                        onClick = {
+                                            if (previewingProject != null) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
+                                                previewSequence++
+                                            }
+                                            deletingProject = name
+                                        }
+                                    ) {
+                                        Text("✕", color = Color(0xFFAE122A), fontSize = 25.sp)
+                                    }
+                                    TextButton(
+                                        enabled = !projectBusy,
+                                        onClick = {
+                                            engine.stopPlayback()
+                                            previewingProject = null
+                                            previewSequence++
+                                            playing = false
+                                            if (engine.loadProject(name)) {
+                                                currentProjectName = engine.currentProjectName()
+                                                segmentEnds.clear()
+                                                repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
+                                                val loaded = engine.loadProjectSettings()
+                                                loaded?.let { s ->
+                                                    repeat(STUDIO_TRACK_COUNT) { i ->
+                                                        volumes[i] = s.volumes.getOrElse(i) { 1f }
+                                                        muted[i] = s.muted.getOrElse(i) { false }
+                                                        solo[i] = s.solo.getOrElse(i) { false }
+                                                        looped[i] = s.looped.getOrElse(i) { false }
+                                                    }
+                                                    tempoBpm = s.bpm
+                                                }
+                                                playheadMs = 0L
+                                                playbackStartOffset = 0L
+                                                Toast.makeText(
+                                                    context, "Projet ouvert : $displayName",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                                projectDialogOpen = false
+                                            } else {
+                                                Toast.makeText(
+                                                    context, "Impossible d'ouvrir le projet",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }
+                                    ) {
+                                        Text("OUVRIR", color = Color(0xFF173C65),
+                                            fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Text(
+                                    text = sizeLabel,
+                                    color = Color(0xFF67717A),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
@@ -951,7 +1090,102 @@ fun StudioScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { projectDialogOpen = false }) { Text("ANNULER") }
+                TextButton(onClick = {
+                    if (previewingProject != null) engine.stopPlayback()
+                    previewingProject = null
+                    previewSequence++
+                    projectDialogOpen = false
+                }) {
+                    Text(if (projectName.isEmpty()) "FERMER" else "ANNULER")
+                }
+            }
+        )
+    }
+
+    if (renamingProject != null) {
+        val target = renamingProject!!
+        AlertDialog(
+            onDismissRequest = { if (!projectBusy) renamingProject = null },
+            title = { Text("Renommer le record", color = Color(0xFF171B25)) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("Nouveau titre") },
+                    singleLine = true,
+                    maxLines = 1
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !projectBusy && renameText.trim().isNotEmpty(),
+                    onClick = {
+                        projectBusy = true
+                        val newName = renameText.trim()
+                        scope.launch {
+                            val changed = withContext(Dispatchers.IO) {
+                                engine.renameSavedProject(target, newName)
+                            }
+                            projectBusy = false
+                            if (changed) {
+                                projectList = engine.listProjects()
+                                renamingProject = null
+                                Toast.makeText(context, "Record renommé", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Renommage impossible", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                ) { Text("RENOMMER") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !projectBusy, onClick = { renamingProject = null }
+                ) { Text("ANNULER") }
+            }
+        )
+    }
+
+    if (deletingProject != null) {
+        val target = deletingProject!!
+        AlertDialog(
+            onDismissRequest = { if (!projectBusy) deletingProject = null },
+            title = { Text("Supprimer ce record ?", color = Color(0xFF171B25)) },
+            text = {
+                Text(
+                    "« ${engine.projectDisplayName(target)} » sera supprimé des projets enregistrés. Cette action est définitive.",
+                    color = Color(0xFF30343D)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !projectBusy,
+                    onClick = {
+                        projectBusy = true
+                        scope.launch {
+                            val deleted = withContext(Dispatchers.IO) {
+                                engine.deleteSavedProject(target)
+                            }
+                            projectBusy = false
+                            if (deleted) {
+                                projectList = engine.listProjects()
+                                deletingProject = null
+                                if (currentProjectName == target) {
+                                    currentProjectName = ""
+                                }
+                                Toast.makeText(context, "Record supprimé", Toast.LENGTH_SHORT).show()
+                                if (projectList.isEmpty()) projectDialogOpen = false
+                            } else {
+                                Toast.makeText(context, "Suppression impossible", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                ) { Text("SUPPRIMER", color = Color(0xFFAE122A)) }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !projectBusy, onClick = { deletingProject = null }
+                ) { Text("ANNULER") }
             }
         )
     }
