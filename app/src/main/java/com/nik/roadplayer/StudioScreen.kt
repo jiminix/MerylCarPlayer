@@ -176,6 +176,9 @@ fun StudioScreen(
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
     var creatingNewRecord by remember { mutableStateOf(false) }
+    var historyBusy by remember { mutableStateOf(false) }
+    var canUndoEdit by remember { mutableStateOf(engine.hasUndo()) }
+    var canRedoEdit by remember { mutableStateOf(engine.hasRedo()) }
     var recordingStartPositionMs by remember { mutableStateOf(0L) }
     var micHealthWarning by remember { mutableStateOf<String?>(null) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
@@ -255,34 +258,51 @@ fun StudioScreen(
     }
 
     fun beginRecording(index: Int) {
-        if (recordingTrack != null || stoppingRecording || exporting || creatingNewRecord) return
+        if (recordingTrack != null || stoppingRecording || exporting ||
+            creatingNewRecord || historyBusy) return
         playing = false
         engine.stopPlayback()
-        // Punch in at the current playhead; preserve the existing audio on both sides.
-        // In particular, REC must never jump to the end of the longest track.
         val insertionMs = playheadMs.coerceIn(0L, storedTimelineDuration)
         recordingStartPositionMs = insertionMs
         playheadMs = insertionMs
         playbackStartOffset = insertionMs
-        recordingStartedAt = SystemClock.elapsedRealtime()
-        beatOrigin = recordingStartedAt
-        val started = engine.startRecording(
-            index = index,
-            settings = settings(),
-            startOffsetMs = insertionMs,
-            inputGain = if (index == 0) 4f else 1f
-        )
-        if (!started) {
-            recordingStartedAt = 0L
-            Toast.makeText(context, "Impossible de démarrer le micro", Toast.LENGTH_LONG).show()
-            return
+        historyBusy = true
+        val beforeSettings = settings()
+        scope.launch {
+            val remembered = withContext(Dispatchers.IO) {
+                engine.rememberBeforeAudioEdit(beforeSettings)
+            }
+            if (!remembered) {
+                historyBusy = false
+                Toast.makeText(
+                    context, "Enregistrement annulé : impossible de protéger la prise précédente",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+            canUndoEdit = engine.hasUndo()
+            canRedoEdit = engine.hasRedo()
+            recordingStartedAt = SystemClock.elapsedRealtime()
+            beatOrigin = recordingStartedAt
+            val started = engine.startRecording(
+                index = index,
+                settings = settings(),
+                startOffsetMs = insertionMs,
+                inputGain = if (index == 0) 4f else 1f
+            )
+            historyBusy = false
+            if (!started) {
+                recordingStartedAt = 0L
+                Toast.makeText(context, "Impossible de démarrer le micro", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            recordingTrack = index
         }
-        recordingTrack = index
     }
 
     fun beginCountdown(index: Int) {
         if (recordingTrack != null || countdownTrack != null || stoppingRecording ||
-            exporting || creatingNewRecord) return
+            exporting || creatingNewRecord || historyBusy) return
         engine.stopPlayback()
         playing = false
         countdownTempo = tempoBpm
@@ -293,7 +313,7 @@ fun StudioScreen(
 
     fun requestRecord(index: Int) {
         if (recordingTrack != null || countdownTrack != null || stoppingRecording ||
-            exporting || creatingNewRecord) return
+            exporting || creatingNewRecord || historyBusy) return
         if (ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
@@ -302,6 +322,87 @@ fun StudioScreen(
             beginCountdown(index)
         } else {
             pendingRecord = index
+        }
+    }
+
+    fun deleteTrackWithHistory(index: Int) {
+        if (!existing[index] || historyBusy || recordingTrack != null ||
+            countdownTrack != null || stoppingRecording || cleaningSilences) return
+        engine.stopPlayback()
+        playing = false
+        historyBusy = true
+        val beforeSettings = settings()
+        scope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                if (!engine.rememberBeforeAudioEdit(beforeSettings)) false
+                else {
+                    engine.deleteTrack(index)
+                    !engine.hasTrack(index)
+                }
+            }
+            if (deleted) {
+                existing[index] = false
+                durations[index] = 0L
+                peaks[index] = emptyList()
+                playheadMs = 0L
+                segmentEnds.clear()
+            } else {
+                Toast.makeText(context, "Suppression impossible : piste conservée", Toast.LENGTH_LONG).show()
+            }
+            canUndoEdit = engine.hasUndo()
+            canRedoEdit = engine.hasRedo()
+            historyBusy = false
+        }
+    }
+
+    fun swapAudioHistory(redo: Boolean) {
+        if (historyBusy || recordingTrack != null || countdownTrack != null ||
+            stoppingRecording || cleaningSilences || creatingNewRecord || exporting) return
+        historyBusy = true
+        engine.stopPlayback()
+        playing = false
+        val currentSettings = settings()
+        scope.launch {
+            val restored = withContext(Dispatchers.IO) {
+                engine.restoreAudioEdit(redo, currentSettings)
+            }
+            if (restored != null) {
+                currentProjectName = restored.projectName
+                repeat(STUDIO_TRACK_COUNT) { i ->
+                    volumes[i] = restored.settings.volumes.getOrElse(i) { 1f }
+                    muted[i] = restored.settings.muted.getOrElse(i) { false }
+                    solo[i] = restored.settings.solo.getOrElse(i) { false }
+                    looped[i] = restored.settings.looped.getOrElse(i) { false }
+                }
+                tempoBpm = restored.settings.bpm
+                val trackInfo = withContext(Dispatchers.IO) {
+                    (0 until STUDIO_TRACK_COUNT).map { i ->
+                        Triple(
+                            engine.hasTrack(i),
+                            engine.trackDurationMs(i),
+                            if (i == 0) engine.trackPeaks(i, 96) else emptyList<Float>()
+                        )
+                    }
+                }
+                trackInfo.forEachIndexed { i, info ->
+                    existing[i] = info.first
+                    durations[i] = info.second
+                    peaks[i] = info.third
+                }
+                segmentEnds.clear()
+                playheadMs = 0L
+                playbackStartOffset = 0L
+                playbackStartedAt = 0L
+                Toast.makeText(
+                    context, if (redo) "Modification rétablie" else "Modification annulée",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                Toast.makeText(context, "Impossible de restaurer la modification", Toast.LENGTH_LONG).show()
+            }
+            canUndoEdit = engine.hasUndo()
+            canRedoEdit = engine.hasRedo()
+            historyBusy = false
         }
     }
 
