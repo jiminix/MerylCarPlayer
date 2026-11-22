@@ -164,6 +164,7 @@ fun StudioScreen(
     var renameText by remember { mutableStateOf("") }
     var deletingProject by remember { mutableStateOf<String?>(null) }
     var projectBusy by remember { mutableStateOf(false) }
+    var pendingDriveProjectName by remember { mutableStateOf<String?>(null) }
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
     var creatingNewRecord by remember { mutableStateOf(false) }
@@ -201,25 +202,29 @@ fun StudioScreen(
         bpm = tempoBpm
     )
 
-    // Android's document picker lets the user select Google Drive without
-    // granting the app full access to their Google account.
+    // Android DocumentsUI handles Drive login, file naming and folder choice.
+    // Keep the selected saved record ID until the document picker returns.
     val driveExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("audio/mp4")
     ) { destinationUri: Uri? ->
-        if (destinationUri != null) {
-            val currentSettings = settings()
+        val selectedRecord = pendingDriveProjectName
+        pendingDriveProjectName = null
+        if (destinationUri == null || selectedRecord == null) {
+            projectBusy = false
+        } else {
             exporting = true
             scope.launch {
                 val saved = withContext(Dispatchers.IO) {
                     runCatching {
-                        engine.exportMix(currentSettings, "MerylStudio", destinationUri) != null
+                        engine.exportSavedProject(selectedRecord, destinationUri)
                     }.getOrDefault(false)
                 }
                 exporting = false
+                projectBusy = false
                 Toast.makeText(
                     context,
-                    if (saved) "Mix exporté vers le dossier choisi"
-                    else "Export impossible : vérifie ton Drive et la connexion",
+                    if (saved) "Morceau exporté vers le dossier choisi"
+                    else "Export impossible : vérifie le morceau et ton Drive",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -779,32 +784,6 @@ fun StudioScreen(
             }
         }
 
-        Spacer(Modifier.height(7.dp))
-
-        StudioTransportButton(
-            text = if (exporting) "EXPORT EN COURS..." else "EXPORT DRIVE",
-            enabled = recordingTrack == null && countdownTrack == null &&
-                !stoppingRecording && !exporting && !cleaningSilences &&
-                !creatingNewRecord && existing.any { it },
-            activeColor = Color(0xFF246B79),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val displayTitle = currentProjectName.takeIf { it.isNotBlank() }
-                ?.let { engine.projectDisplayName(it) }
-                ?: "MerylStudio_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
-            val safeTitle = displayTitle.trim()
-                .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
-                .removeSuffix(".m4a")
-                .removeSuffix(".M4A")
-                .take(100)
-                .ifBlank { "MerylStudio" }
-            Toast.makeText(
-                context, "Choisis Google Drive puis le dossier de destination",
-                Toast.LENGTH_LONG
-            ).show()
-            driveExportLauncher.launch("$safeTitle.m4a")
-        }
-
         Spacer(Modifier.height(9.dp))
 
         Row(
@@ -1077,12 +1056,44 @@ fun StudioScreen(
                                                 previewingProject = null
                                                 previewSequence++
                                             }
+                                            pendingDriveProjectName = name
+                                            projectBusy = true
+                                            val safeTitle = displayName.trim()
+                                                .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
+                                                .removeSuffix(".m4a")
+                                                .removeSuffix(".M4A")
+                                                .take(100)
+                                                .ifBlank { "MerylStudio" }
+                                            runCatching { driveExportLauncher.launch("$safeTitle.m4a") }
+                                                .onFailure {
+                                                    pendingDriveProjectName = null
+                                                    projectBusy = false
+                                                    Toast.makeText(
+                                                        context, "Sélecteur Drive indisponible",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                        }
+                                    ) {
+                                        Text("DRIVE", color = Color(0xFF246B79),
+                                            fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    TextButton(
+                                        enabled = !projectBusy,
+                                        onClick = {
+                                            if (previewingProject != null) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
+                                                previewSequence++
+                                            }
                                             deletingProject = name
                                         }
                                     ) {
                                         Text("✕", color = Color(0xFFAE122A), fontSize = 25.sp)
                                     }
+                                }
                                     TextButton(
+                                        modifier = Modifier.fillMaxWidth(),
                                         enabled = !projectBusy,
                                         onClick = {
                                             engine.stopPlayback()
@@ -1121,7 +1132,6 @@ fun StudioScreen(
                                         Text("OUVRIR", color = Color(0xFF173C65),
                                             fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
-                                }
                                 Text(
                                     text = sizeLabel,
                                     color = Color(0xFF67717A),
@@ -2822,17 +2832,52 @@ private class MerylStudioEngine(private val context: Context) {
         }
     }
 
+    // Export any saved record without loading it into the active Studio workspace.
+    fun exportSavedProject(name: String, destinationUri: Uri): Boolean {
+        val dir = File(savedProjectsDir, name)
+        if (name.startsWith(".") || !dir.isDirectory) return false
+        val json = runCatching {
+            JSONObject(File(dir, "project.json").readText())
+        }.getOrNull()
+        fun floats(key: String): List<Float> =
+            json?.optString(key)?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
+        fun flags(key: String): List<Boolean> =
+            json?.optString(key)?.split(",")?.map { it.toBoolean() }.orEmpty()
+        val savedSettings = StudioMixSettings(
+            volumes = floats("volumes"),
+            muted = flags("muted"),
+            solo = flags("solo"),
+            looped = flags("looped"),
+            bpm = json?.optInt("bpm", 120) ?: 120
+        )
+        return exportMix(
+            settings = savedSettings,
+            requestedName = projectDisplayName(name),
+            destinationUri = destinationUri,
+            sourceDir = dir
+        ) != null
+    }
+
     fun exportMix(
         settings: StudioMixSettings,
         requestedName: String,
-        destinationUri: Uri? = null
+        destinationUri: Uri? = null,
+        sourceDir: File = projectDir
     ): Uri? {
-        val selected = selectedTrackIndexes(settings, excludeTrack = -1)
+        val audioFiles = (0 until STUDIO_TRACK_COUNT)
+            .map { index -> File(sourceDir, "track_${index + 1}.wav") }
+        val available = (0 until STUDIO_TRACK_COUNT)
+            .filter { audioFiles[it].isFile && audioFiles[it].length() > WAV_HEADER_SIZE }
+        val anySolo = available.any { settings.solo.getOrElse(it) { false } }
+        val selected = available.filter { index ->
+            (!anySolo || settings.solo.getOrElse(index) { false }) &&
+                !settings.muted.getOrElse(index) { false }
+        }
         if (selected.isEmpty()) return null
 
         val maxSamples = selected.maxOfOrNull { index ->
             StudioPcmSource.cycleSamples(
-                trackFile(index),
+                audioFiles[index],
                 looped = index > 0 && settings.looped.getOrElse(index) { false },
                 bpm = settings.bpm
             )
@@ -2843,7 +2888,7 @@ private class MerylStudioEngine(private val context: Context) {
         val sources = selected.map { index ->
             MixSource(
                 audio = StudioPcmSource(
-                    file = trackFile(index),
+                    file = audioFiles[index],
                     looped = index > 0 && settings.looped.getOrElse(index) { false },
                     bpm = settings.bpm,
                     startSample = 0L
