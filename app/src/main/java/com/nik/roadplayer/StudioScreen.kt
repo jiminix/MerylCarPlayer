@@ -205,7 +205,7 @@ fun StudioScreen(
     // Android DocumentsUI handles Drive login, file naming and folder choice.
     // Keep the selected saved record ID until the document picker returns.
     val driveExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("audio/mp4")
+        ActivityResultContracts.CreateDocument("audio/mpeg")
     ) { destinationUri: Uri? ->
         val selectedRecord = pendingDriveProjectName
         pendingDriveProjectName = null
@@ -1062,9 +1062,11 @@ fun StudioScreen(
                                                 .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
                                                 .removeSuffix(".m4a")
                                                 .removeSuffix(".M4A")
+                                                .removeSuffix(".mp3")
+                                                .removeSuffix(".MP3")
                                                 .take(100)
                                                 .ifBlank { "MerylStudio" }
-                                            runCatching { driveExportLauncher.launch("$safeTitle.m4a") }
+                                            runCatching { driveExportLauncher.launch("$safeTitle.mp3") }
                                                 .onFailure {
                                                     pendingDriveProjectName = null
                                                     projectBusy = false
@@ -2932,6 +2934,37 @@ private class MerylStudioEngine(private val context: Context) {
             sources.forEach { runCatching { it.audio.close() } }
         }
 
+        // Drive export uses real MP3 encoding (not WAV/M4A with a changed extension).
+        // Keep the existing local export route unchanged for other callers.
+        if (destinationUri != null) {
+            val tempMp3 = File(projectDir, "mix_export_drive.tmp.mp3")
+            runCatching { tempMp3.delete() }
+            val quote: (String) -> String = { path ->
+                "'" + path.replace("'", "'\\''") + "'"
+            }
+            val command = listOf(
+                "-y", "-hide_banner", "-loglevel", "error",
+                "-i", quote(tempMix.absolutePath),
+                "-vn", "-codec:a", "libmp3lame", "-b:a", "192k",
+                "-ar", STUDIO_SAMPLE_RATE.toString(), "-ac", "1",
+                quote(tempMp3.absolutePath)
+            ).joinToString(" ")
+            val encoded = runCatching {
+                val session = FFmpegKit.execute(command)
+                ReturnCode.isSuccess(session.returnCode) &&
+                    tempMp3.isFile && tempMp3.length() > 0L
+            }.getOrDefault(false)
+            val copied = if (encoded) runCatching {
+                context.contentResolver.openOutputStream(destinationUri, "w")?.use { output ->
+                    FileInputStream(tempMp3).use { input -> input.copyTo(output) }
+                } ?: error("No output stream")
+                true
+            }.getOrDefault(false) else false
+            runCatching { tempMix.delete() }
+            runCatching { tempMp3.delete() }
+            return if (copied) destinationUri else null
+        }
+
         val cleanedBase = requestedName
             .trim()
             .removeSuffix(".wav")
@@ -2972,19 +3005,6 @@ private class MerylStudioEngine(private val context: Context) {
             return null
         }
         val resolver = context.contentResolver
-        if (destinationUri != null) {
-            // The picked URI can belong to Google Drive's document provider.
-            // Write the actual AAC/M4A bytes there, without a duplicate MediaStore export.
-            val copied = runCatching {
-                resolver.openOutputStream(destinationUri, "w")?.use { output ->
-                    FileInputStream(encoded).use { input -> input.copyTo(output) }
-                } ?: error("No output stream")
-                true
-            }.getOrDefault(false)
-            runCatching { tempMix.delete() }
-            runCatching { encoded.delete() }
-            return if (copied) destinationUri else null
-        }
         val uri = runCatching {
             resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
         }.getOrNull() ?: run {
