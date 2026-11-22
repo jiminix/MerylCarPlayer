@@ -527,7 +527,7 @@ fun StudioScreen(
             muted = muted[0],
             solo = solo[0],
             recording = recordingTrack == 0,
-            controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+            controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
             timelineProgress = timelineProgress,
             timelineDurationMs = timelineDuration,
             playheadMs = playheadMs,
@@ -540,13 +540,7 @@ fun StudioScreen(
             onVolume = { volumes[0] = it },
             onMute = { muted[0] = !muted[0] },
             onSolo = { solo[0] = !solo[0] },
-            onClear = {
-                engine.deleteTrack(0)
-                existing[0] = false
-                durations[0] = 0L
-                peaks[0] = emptyList()
-                playheadMs = 0L
-            }
+            onClear = { deleteTrackWithHistory(0) }
         )
 
         Spacer(Modifier.height(7.dp))
@@ -558,7 +552,7 @@ fun StudioScreen(
         ) {
             StudioTransportButton(
                 text = "⏮",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
@@ -574,7 +568,7 @@ fun StudioScreen(
 
             StudioTransportButton(
                 text = "⏭",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing.any { it },
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy && existing.any { it },
                 modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
@@ -590,7 +584,7 @@ fun StudioScreen(
 
             StudioTransportButton(
                 text = if (playing) "■" else "▶",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting && !historyBusy,
                 activeColor = Color(0xFF208457),
                 modifier = Modifier.weight(1.15f)
             ) {
@@ -619,7 +613,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = if (countdownTrack == 0 && countdownBeat > 0) countdownBeat.toString()
                     else if (recordingTrack == 0) "● REC" else "REC",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 activeColor = Color(0xFFB82020),
                 modifier = Modifier.weight(1.2f)
             ) {
@@ -653,7 +647,6 @@ fun StudioScreen(
                         val recordingWarning = engine.lastRecordingWarning()
                         recordingTrack = null
                         recordingStartedAt = 0L
-                        stoppingRecording = false
                         stoppedTrack?.let { track ->
                             val actualDuration = withContext(Dispatchers.IO) {
                                 engine.trackDurationMs(track)
@@ -714,6 +707,7 @@ fun StudioScreen(
                                 }
                             }
                         }
+                        stoppingRecording = false
                     }
                 } else {
                     engine.stopPlayback()
@@ -741,8 +735,11 @@ fun StudioScreen(
                 val autoSaveSettings = settings()
                 scope.launch {
                     val removedMs = withContext(Dispatchers.IO) {
-                        engine.removeLongSilences(0)
+                        if (!engine.rememberBeforeAudioEdit(autoSaveSettings)) -2L
+                        else engine.removeLongSilences(0)
                     }
+                    canUndoEdit = engine.hasUndo()
+                    canRedoEdit = engine.hasRedo()
                     val trackInfo = withContext(Dispatchers.IO) {
                         Triple(
                             engine.hasTrack(0),
@@ -769,6 +766,7 @@ fun StudioScreen(
                     Toast.makeText(
                         context,
                         when {
+                            removedMs == -2L -> "Nettoyage annulé : impossible de protéger la piste"
                             removedMs < 0L -> "Nettoyage impossible"
                             removedMs == 0L -> "Aucun silence long détecté"
                             else -> "Silences supprimés : ${formatStudioDuration(removedMs)}"
@@ -788,7 +786,7 @@ fun StudioScreen(
         ) {
             StudioTransportButton(
                 text = "SAVE",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting && !historyBusy,
                 activeColor = Color(0xFF355D48),
                 modifier = Modifier.width(96.dp)
             ) {
@@ -820,7 +818,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = "UNDO",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording &&
-                    existing.any { it } && !exporting && !cleaningSilences && !creatingNewRecord,
+                    existing.any { it } && !exporting && !historyBusy && !cleaningSilences && !creatingNewRecord,
                 activeColor = Color(0xFF8E3439),
                 modifier = Modifier.width(96.dp)
             ) {
@@ -875,7 +873,7 @@ fun StudioScreen(
             Spacer(Modifier.width(8.dp))
             StudioTransportButton(
                 text = "OPEN",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 activeColor = Color(0xFF3D527A),
                 modifier = Modifier.width(96.dp)
             ) {
@@ -911,18 +909,14 @@ fun StudioScreen(
                 recording = recordingTrack == 1,
                 countdownBeat = if (countdownTrack == 1) countdownBeat else 0,
                 looped = looped[1],
-                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 modifier = Modifier.weight(1f),
                 onVolume = { volumes[1] = it },
                 onMute = { muted[1] = !muted[1] },
                 onSolo = { solo[1] = !solo[1] },
                 onRecord = { requestRecord(1) },
                 onLoop = { looped[1] = !looped[1] },
-                onClear = {
-                    engine.deleteTrack(1)
-                    existing[1] = false
-                    durations[1] = 0L
-                }
+                onClear = { deleteTrackWithHistory(1) }
             )
             CompactStudioTrack(
                 index = 2,
@@ -936,18 +930,14 @@ fun StudioScreen(
                 recording = recordingTrack == 2,
                 countdownBeat = if (countdownTrack == 2) countdownBeat else 0,
                 looped = looped[2],
-                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 modifier = Modifier.weight(1f),
                 onVolume = { volumes[2] = it },
                 onMute = { muted[2] = !muted[2] },
                 onSolo = { solo[2] = !solo[2] },
                 onRecord = { requestRecord(2) },
                 onLoop = { looped[2] = !looped[2] },
-                onClear = {
-                    engine.deleteTrack(2)
-                    existing[2] = false
-                    durations[2] = 0L
-                }
+                onClear = { deleteTrackWithHistory(2) }
             )
         }
 
