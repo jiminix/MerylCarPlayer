@@ -215,7 +215,7 @@ class MainActivity : ComponentActivity() {
             insets
         }
         val heading = android.widget.TextView(this).apply {
-            text = "Meryl Car Studioplayer V1.41 — Diagnostic du plantage"
+            text = "Meryl Car Studioplayer V1.42 — Diagnostic du plantage"
             textSize = 20f
             setTextColor(android.graphics.Color.WHITE)
         }
@@ -281,7 +281,7 @@ private fun MerylCarPlayerApp() {
             Column(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF202830))
             ) {
-                PlayerHeader(version = "V1.41")
+                PlayerHeader(version = "V1.42")
                 StartupLoadingBar(progress = startupProgress)
             }
         }
@@ -599,7 +599,7 @@ private fun MerylCarPlayerContent(repository: MusicRepository) {
                 .background(Color(0xFF202830))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            PlayerHeader(version = "V1.41", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
+            PlayerHeader(version = "V1.42", miniStudio = studioOpen, onMiniStudioBack = { studioOpen = false })
 
         if (studioOpen) {
             StudioScreen(

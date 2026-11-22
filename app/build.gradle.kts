@@ -12,8 +12,8 @@ android {
         applicationId = "com.nik.roadplayer.v141"
         minSdk = 29
         targetSdk = 36
-        versionCode = 141
-        versionName = "1.41"
+        versionCode = 142
+        versionName = "1.42"
     }
 
     signingConfigs {
