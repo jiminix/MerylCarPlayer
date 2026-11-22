@@ -68,6 +68,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -993,72 +995,72 @@ fun StudioScreen(
                                 Spacer(Modifier.height(5.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    TextButton(
+                                    StudioProjectActionButton(
+                                        symbol = if (previewingProject == name) "■" else "▶",
+                                        description = "Écouter le morceau",
+                                        color = Color(0xFF173C65),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject == name) {
+                                                if (previewingProject == name) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            } else {
+                                                } else {
                                                 engine.stopPlayback()
                                                 previewSequence++
                                                 val sequence = previewSequence
                                                 val seconds = engine.previewSavedProject(name)
                                                 if (seconds > 0L) {
-                                                    previewingProject = name
-                                                    scope.launch {
-                                                        delay(seconds * 1000L)
-                                                        if (previewSequence == sequence &&
-                                                            previewingProject == name) {
-                                                            engine.stopPlayback()
-                                                            previewingProject = null
-                                                        }
-                                                    }
-                                                } else {
-                                                    previewingProject = null
-                                                    Toast.makeText(
-                                                        context, "Aucun son à pré-écouter", Toast.LENGTH_SHORT
-                                                    ).show()
+                                                previewingProject = name
+                                                scope.launch {
+                                                delay(seconds * 1000L)
+                                                if (previewSequence == sequence &&
+                                                previewingProject == name) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
                                                 }
-                                            }
+                                                }
+                                                } else {
+                                                previewingProject = null
+                                                Toast.makeText(
+                                                context, "Aucun son à pré-écouter", Toast.LENGTH_SHORT
+                                                ).show()
+                                                }
+                                                }
                                         }
-                                    ) {
-                                        Text(
-                                            if (previewingProject == name) "■" else "▶",
-                                            color = Color(0xFF173C65),
-                                            fontSize = 25.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    TextButton(
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "✎",
+                                        description = "Renommer le morceau",
+                                        color = Color(0xFF173C65),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject != null) {
+                                                if (previewingProject != null) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            }
-                                            renamingProject = name
-                                            renameText = displayName
+                                                }
+                                                renamingProject = name
+                                                renameText = displayName
                                         }
-                                    ) {
-                                        Text("✎", color = Color(0xFF173C65), fontSize = 26.sp)
-                                    }
-                                    TextButton(
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "☁",
+                                        description = "Exporter le morceau en MP3 vers Drive",
+                                        color = Color(0xFF246B79),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject != null) {
+                                                if (previewingProject != null) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            }
-                                            pendingDriveProjectName = name
-                                            projectBusy = true
-                                            val safeTitle = displayName.trim()
+                                                }
+                                                pendingDriveProjectName = name
+                                                projectBusy = true
+                                                val safeTitle = displayName.trim()
                                                 .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
                                                 .removeSuffix(".m4a")
                                                 .removeSuffix(".M4A")
@@ -1066,74 +1068,71 @@ fun StudioScreen(
                                                 .removeSuffix(".MP3")
                                                 .take(100)
                                                 .ifBlank { "MerylStudio" }
-                                            runCatching { driveExportLauncher.launch("$safeTitle.mp3") }
+                                                runCatching { driveExportLauncher.launch("$safeTitle.mp3") }
                                                 .onFailure {
-                                                    pendingDriveProjectName = null
-                                                    projectBusy = false
-                                                    Toast.makeText(
-                                                        context, "Sélecteur Drive indisponible",
-                                                        Toast.LENGTH_LONG
-                                                    ).show()
+                                                pendingDriveProjectName = null
+                                                projectBusy = false
+                                                Toast.makeText(
+                                                context, "Sélecteur Drive indisponible",
+                                                Toast.LENGTH_LONG
+                                                ).show()
                                                 }
                                         }
-                                    ) {
-                                        Text("DRIVE", color = Color(0xFF246B79),
-                                            fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    TextButton(
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "✕",
+                                        description = "Supprimer le morceau",
+                                        color = Color(0xFFAE122A),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject != null) {
+                                                if (previewingProject != null) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            }
-                                            deletingProject = name
+                                                }
+                                                deletingProject = name
                                         }
-                                    ) {
-                                        Text("✕", color = Color(0xFFAE122A), fontSize = 25.sp)
-                                    }
-                                }
-                                    TextButton(
-                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "📂",
+                                        description = "Ouvrir le morceau dans le studio",
+                                        color = Color(0xFF173C65),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            engine.stopPlayback()
-                                            previewingProject = null
-                                            previewSequence++
-                                            playing = false
-                                            if (engine.loadProject(name)) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
+                                                previewSequence++
+                                                playing = false
+                                                if (engine.loadProject(name)) {
                                                 currentProjectName = engine.currentProjectName()
                                                 segmentEnds.clear()
                                                 repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
                                                 val loaded = engine.loadProjectSettings()
                                                 loaded?.let { s ->
-                                                    repeat(STUDIO_TRACK_COUNT) { i ->
-                                                        volumes[i] = s.volumes.getOrElse(i) { 1f }
-                                                        muted[i] = s.muted.getOrElse(i) { false }
-                                                        solo[i] = s.solo.getOrElse(i) { false }
-                                                        looped[i] = s.looped.getOrElse(i) { false }
-                                                    }
-                                                    tempoBpm = s.bpm
+                                                repeat(STUDIO_TRACK_COUNT) { i ->
+                                                volumes[i] = s.volumes.getOrElse(i) { 1f }
+                                                muted[i] = s.muted.getOrElse(i) { false }
+                                                solo[i] = s.solo.getOrElse(i) { false }
+                                                looped[i] = s.looped.getOrElse(i) { false }
+                                                }
+                                                tempoBpm = s.bpm
                                                 }
                                                 playheadMs = 0L
                                                 playbackStartOffset = 0L
                                                 Toast.makeText(
-                                                    context, "Projet ouvert : $displayName",
-                                                    Toast.LENGTH_SHORT
+                                                context, "Projet ouvert : $displayName",
+                                                Toast.LENGTH_SHORT
                                                 ).show()
                                                 projectDialogOpen = false
-                                            } else {
+                                                } else {
                                                 Toast.makeText(
-                                                    context, "Impossible d'ouvrir le projet",
-                                                    Toast.LENGTH_LONG
+                                                context, "Impossible d'ouvrir le projet",
+                                                Toast.LENGTH_LONG
                                                 ).show()
-                                            }
+                                                }
                                         }
-                                    ) {
-                                        Text("OUVRIR", color = Color(0xFF173C65),
-                                            fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
+                                    )
+                                }
                                 Text(
                                     text = sizeLabel,
                                     color = Color(0xFF67717A),
@@ -1812,6 +1811,31 @@ private fun StudioMiniButton(
             color = if (enabled) Color.White else Color(0xFF5B6469),
             fontSize = if (text == "REC") 9.sp else 12.sp,
             fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun StudioProjectActionButton(
+    symbol: String,
+    description: String,
+    color: Color,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(43.dp)
+            .semantics { contentDescription = description }
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = symbol,
+            fontSize = if (symbol == "📂") 23.sp else 26.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (enabled) color else Color(0xFF8D939B),
+            textAlign = TextAlign.Center
         )
     }
 }
