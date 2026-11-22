@@ -201,6 +201,31 @@ fun StudioScreen(
         bpm = tempoBpm
     )
 
+    // Android's document picker lets the user select Google Drive without
+    // granting the app full access to their Google account.
+    val driveExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("audio/mp4")
+    ) { destinationUri: Uri? ->
+        if (destinationUri != null) {
+            val currentSettings = settings()
+            exporting = true
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    runCatching {
+                        engine.exportMix(currentSettings, "MerylStudio", destinationUri) != null
+                    }.getOrDefault(false)
+                }
+                exporting = false
+                Toast.makeText(
+                    context,
+                    if (saved) "Mix exporté vers le dossier choisi"
+                    else "Export impossible : vérifie ton Drive et la connexion",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     fun refreshTrack(index: Int) {
         scope.launch {
             val info = withContext(Dispatchers.IO) {
@@ -754,6 +779,32 @@ fun StudioScreen(
             }
         }
 
+        Spacer(Modifier.height(7.dp))
+
+        StudioTransportButton(
+            text = if (exporting) "EXPORT EN COURS..." else "EXPORT DRIVE",
+            enabled = recordingTrack == null && countdownTrack == null &&
+                !stoppingRecording && !exporting && !cleaningSilences &&
+                !creatingNewRecord && existing.any { it },
+            activeColor = Color(0xFF246B79),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val displayTitle = currentProjectName.takeIf { it.isNotBlank() }
+                ?.let { engine.projectDisplayName(it) }
+                ?: "MerylStudio_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.FRANCE).format(Date())
+            val safeTitle = displayTitle.trim()
+                .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
+                .removeSuffix(".m4a")
+                .removeSuffix(".M4A")
+                .take(100)
+                .ifBlank { "MerylStudio" }
+            Toast.makeText(
+                context, "Choisis Google Drive puis le dossier de destination",
+                Toast.LENGTH_LONG
+            ).show()
+            driveExportLauncher.launch("$safeTitle.m4a")
+        }
+
         Spacer(Modifier.height(9.dp))
 
         Row(
@@ -1217,7 +1268,7 @@ fun StudioScreen(
                     onValueChange = { exportFileName = it },
                     singleLine = true,
                     label = { Text("Nom du fichier") },
-                    suffix = { Text(".mp3") }
+                    suffix = { Text(".m4a") }
                 )
             },
             confirmButton = {
@@ -2771,7 +2822,11 @@ private class MerylStudioEngine(private val context: Context) {
         }
     }
 
-    fun exportMix(settings: StudioMixSettings, requestedName: String): Uri? {
+    fun exportMix(
+        settings: StudioMixSettings,
+        requestedName: String,
+        destinationUri: Uri? = null
+    ): Uri? {
         val selected = selectedTrackIndexes(settings, excludeTrack = -1)
         if (selected.isEmpty()) return null
 
@@ -2872,6 +2927,19 @@ private class MerylStudioEngine(private val context: Context) {
             return null
         }
         val resolver = context.contentResolver
+        if (destinationUri != null) {
+            // The picked URI can belong to Google Drive's document provider.
+            // Write the actual AAC/M4A bytes there, without a duplicate MediaStore export.
+            val copied = runCatching {
+                resolver.openOutputStream(destinationUri, "w")?.use { output ->
+                    FileInputStream(encoded).use { input -> input.copyTo(output) }
+                } ?: error("No output stream")
+                true
+            }.getOrDefault(false)
+            runCatching { tempMix.delete() }
+            runCatching { encoded.delete() }
+            return if (copied) destinationUri else null
+        }
         val uri = runCatching {
             resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
         }.getOrNull() ?: run {
