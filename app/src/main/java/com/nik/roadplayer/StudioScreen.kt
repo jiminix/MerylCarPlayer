@@ -359,7 +359,7 @@ fun StudioScreen(
         ) {
 
         Text(
-            text = if (currentProjectName.isBlank()) "FICHIER : —" else "FICHIER : $currentProjectName",
+            text = if (currentProjectName.isBlank()) "FICHIER : —" else "FICHIER : ${engine.projectDisplayName(currentProjectName)}",
             color = Color(0xFF79E6BD),
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
@@ -569,7 +569,7 @@ fun StudioScreen(
                                     currentProjectName = engine.currentProjectName()
                                     Toast.makeText(
                                         context,
-                                        "Mise à jour auto : $currentProjectName",
+                                        "Mise à jour auto : ${engine.projectDisplayName(currentProjectName)}",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -664,7 +664,7 @@ fun StudioScreen(
                             currentProjectName = engine.currentProjectName()
                             Toast.makeText(
                                 context,
-                                "Projet mis à jour : $currentProjectName",
+                                "Projet mis à jour : ${engine.projectDisplayName(currentProjectName)}",
                                 Toast.LENGTH_SHORT
                             ).show()
                         } else {
@@ -1091,7 +1091,7 @@ fun StudioScreen(
                             currentProjectName = engine.currentProjectName()
                             Toast.makeText(
                                 context,
-                                "Projet enregistré : $currentProjectName",
+                                "Projet enregistré : ${engine.projectDisplayName(currentProjectName)}",
                                 Toast.LENGTH_SHORT
                             ).show()
                             projectDialogOpen = false
