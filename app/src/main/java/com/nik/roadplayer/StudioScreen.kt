@@ -68,6 +68,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,6 +112,12 @@ private data class StudioMixSettings(
     val solo: List<Boolean>,
     val looped: List<Boolean>,
     val bpm: Int
+)
+
+// One-step audio edit history. Saved records in saved_projects/ are never modified.
+private data class StudioHistoryState(
+    val settings: StudioMixSettings,
+    val projectName: String
 )
 
 @Composable
@@ -168,6 +176,9 @@ fun StudioScreen(
     var currentProjectName by remember { mutableStateOf(engine.currentProjectName()) }
     var cleaningSilences by remember { mutableStateOf(false) }
     var creatingNewRecord by remember { mutableStateOf(false) }
+    var historyBusy by remember { mutableStateOf(false) }
+    var canUndoEdit by remember { mutableStateOf(engine.hasUndo()) }
+    var canRedoEdit by remember { mutableStateOf(engine.hasRedo()) }
     var recordingStartPositionMs by remember { mutableStateOf(0L) }
     var micHealthWarning by remember { mutableStateOf<String?>(null) }
     val segmentEnds = remember { mutableStateListOf<Long>() }
@@ -247,34 +258,51 @@ fun StudioScreen(
     }
 
     fun beginRecording(index: Int) {
-        if (recordingTrack != null || stoppingRecording || exporting || creatingNewRecord) return
+        if (recordingTrack != null || stoppingRecording || exporting ||
+            creatingNewRecord || historyBusy) return
         playing = false
         engine.stopPlayback()
-        // Punch in at the current playhead; preserve the existing audio on both sides.
-        // In particular, REC must never jump to the end of the longest track.
         val insertionMs = playheadMs.coerceIn(0L, storedTimelineDuration)
         recordingStartPositionMs = insertionMs
         playheadMs = insertionMs
         playbackStartOffset = insertionMs
-        recordingStartedAt = SystemClock.elapsedRealtime()
-        beatOrigin = recordingStartedAt
-        val started = engine.startRecording(
-            index = index,
-            settings = settings(),
-            startOffsetMs = insertionMs,
-            inputGain = if (index == 0) 4f else 1f
-        )
-        if (!started) {
-            recordingStartedAt = 0L
-            Toast.makeText(context, "Impossible de démarrer le micro", Toast.LENGTH_LONG).show()
-            return
+        historyBusy = true
+        val beforeSettings = settings()
+        scope.launch {
+            val remembered = withContext(Dispatchers.IO) {
+                engine.rememberBeforeAudioEdit(beforeSettings)
+            }
+            if (!remembered) {
+                historyBusy = false
+                Toast.makeText(
+                    context, "Enregistrement annulé : impossible de protéger la prise précédente",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+            canUndoEdit = engine.hasUndo()
+            canRedoEdit = engine.hasRedo()
+            recordingStartedAt = SystemClock.elapsedRealtime()
+            beatOrigin = recordingStartedAt
+            val started = engine.startRecording(
+                index = index,
+                settings = settings(),
+                startOffsetMs = insertionMs,
+                inputGain = if (index == 0) 4f else 1f
+            )
+            historyBusy = false
+            if (!started) {
+                recordingStartedAt = 0L
+                Toast.makeText(context, "Impossible de démarrer le micro", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            recordingTrack = index
         }
-        recordingTrack = index
     }
 
     fun beginCountdown(index: Int) {
         if (recordingTrack != null || countdownTrack != null || stoppingRecording ||
-            exporting || creatingNewRecord) return
+            exporting || creatingNewRecord || historyBusy) return
         engine.stopPlayback()
         playing = false
         countdownTempo = tempoBpm
@@ -285,7 +313,7 @@ fun StudioScreen(
 
     fun requestRecord(index: Int) {
         if (recordingTrack != null || countdownTrack != null || stoppingRecording ||
-            exporting || creatingNewRecord) return
+            exporting || creatingNewRecord || historyBusy) return
         if (ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
@@ -294,6 +322,87 @@ fun StudioScreen(
             beginCountdown(index)
         } else {
             pendingRecord = index
+        }
+    }
+
+    fun deleteTrackWithHistory(index: Int) {
+        if (!existing[index] || historyBusy || recordingTrack != null ||
+            countdownTrack != null || stoppingRecording || cleaningSilences) return
+        engine.stopPlayback()
+        playing = false
+        historyBusy = true
+        val beforeSettings = settings()
+        scope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                if (!engine.rememberBeforeAudioEdit(beforeSettings)) false
+                else {
+                    engine.deleteTrack(index)
+                    !engine.hasTrack(index)
+                }
+            }
+            if (deleted) {
+                existing[index] = false
+                durations[index] = 0L
+                peaks[index] = emptyList()
+                playheadMs = 0L
+                segmentEnds.clear()
+            } else {
+                Toast.makeText(context, "Suppression impossible : piste conservée", Toast.LENGTH_LONG).show()
+            }
+            canUndoEdit = engine.hasUndo()
+            canRedoEdit = engine.hasRedo()
+            historyBusy = false
+        }
+    }
+
+    fun swapAudioHistory(redo: Boolean) {
+        if (historyBusy || recordingTrack != null || countdownTrack != null ||
+            stoppingRecording || cleaningSilences || creatingNewRecord || exporting) return
+        historyBusy = true
+        engine.stopPlayback()
+        playing = false
+        val currentSettings = settings()
+        scope.launch {
+            val restored = withContext(Dispatchers.IO) {
+                engine.restoreAudioEdit(redo, currentSettings)
+            }
+            if (restored != null) {
+                currentProjectName = restored.projectName
+                repeat(STUDIO_TRACK_COUNT) { i ->
+                    volumes[i] = restored.settings.volumes.getOrElse(i) { 1f }
+                    muted[i] = restored.settings.muted.getOrElse(i) { false }
+                    solo[i] = restored.settings.solo.getOrElse(i) { false }
+                    looped[i] = restored.settings.looped.getOrElse(i) { false }
+                }
+                tempoBpm = restored.settings.bpm
+                val trackInfo = withContext(Dispatchers.IO) {
+                    (0 until STUDIO_TRACK_COUNT).map { i ->
+                        Triple(
+                            engine.hasTrack(i),
+                            engine.trackDurationMs(i),
+                            if (i == 0) engine.trackPeaks(i, 96) else emptyList<Float>()
+                        )
+                    }
+                }
+                trackInfo.forEachIndexed { i, info ->
+                    existing[i] = info.first
+                    durations[i] = info.second
+                    peaks[i] = info.third
+                }
+                segmentEnds.clear()
+                playheadMs = 0L
+                playbackStartOffset = 0L
+                playbackStartedAt = 0L
+                Toast.makeText(
+                    context, if (redo) "Modification rétablie" else "Modification annulée",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                Toast.makeText(context, "Impossible de restaurer la modification", Toast.LENGTH_LONG).show()
+            }
+            canUndoEdit = engine.hasUndo()
+            canRedoEdit = engine.hasRedo()
+            historyBusy = false
         }
     }
 
@@ -418,7 +527,7 @@ fun StudioScreen(
             muted = muted[0],
             solo = solo[0],
             recording = recordingTrack == 0,
-            controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+            controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
             timelineProgress = timelineProgress,
             timelineDurationMs = timelineDuration,
             playheadMs = playheadMs,
@@ -431,13 +540,7 @@ fun StudioScreen(
             onVolume = { volumes[0] = it },
             onMute = { muted[0] = !muted[0] },
             onSolo = { solo[0] = !solo[0] },
-            onClear = {
-                engine.deleteTrack(0)
-                existing[0] = false
-                durations[0] = 0L
-                peaks[0] = emptyList()
-                playheadMs = 0L
-            }
+            onClear = { deleteTrackWithHistory(0) }
         )
 
         Spacer(Modifier.height(7.dp))
@@ -449,7 +552,7 @@ fun StudioScreen(
         ) {
             StudioTransportButton(
                 text = "⏮",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
@@ -465,7 +568,7 @@ fun StudioScreen(
 
             StudioTransportButton(
                 text = "⏭",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && existing.any { it },
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy && existing.any { it },
                 modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
@@ -481,7 +584,7 @@ fun StudioScreen(
 
             StudioTransportButton(
                 text = if (playing) "■" else "▶",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting && !historyBusy,
                 activeColor = Color(0xFF208457),
                 modifier = Modifier.weight(1.15f)
             ) {
@@ -510,7 +613,7 @@ fun StudioScreen(
             StudioTransportButton(
                 text = if (countdownTrack == 0 && countdownBeat > 0) countdownBeat.toString()
                     else if (recordingTrack == 0) "● REC" else "REC",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 activeColor = Color(0xFFB82020),
                 modifier = Modifier.weight(1.2f)
             ) {
@@ -544,7 +647,6 @@ fun StudioScreen(
                         val recordingWarning = engine.lastRecordingWarning()
                         recordingTrack = null
                         recordingStartedAt = 0L
-                        stoppingRecording = false
                         stoppedTrack?.let { track ->
                             val actualDuration = withContext(Dispatchers.IO) {
                                 engine.trackDurationMs(track)
@@ -605,6 +707,7 @@ fun StudioScreen(
                                 }
                             }
                         }
+                        stoppingRecording = false
                     }
                 } else {
                     engine.stopPlayback()
@@ -632,8 +735,11 @@ fun StudioScreen(
                 val autoSaveSettings = settings()
                 scope.launch {
                     val removedMs = withContext(Dispatchers.IO) {
-                        engine.removeLongSilences(0)
+                        if (!engine.rememberBeforeAudioEdit(autoSaveSettings)) -2L
+                        else engine.removeLongSilences(0)
                     }
+                    canUndoEdit = engine.hasUndo()
+                    canRedoEdit = engine.hasRedo()
                     val trackInfo = withContext(Dispatchers.IO) {
                         Triple(
                             engine.hasTrack(0),
@@ -660,6 +766,7 @@ fun StudioScreen(
                     Toast.makeText(
                         context,
                         when {
+                            removedMs == -2L -> "Nettoyage annulé : impossible de protéger la piste"
                             removedMs < 0L -> "Nettoyage impossible"
                             removedMs == 0L -> "Aucun silence long détecté"
                             else -> "Silences supprimés : ${formatStudioDuration(removedMs)}"
@@ -679,9 +786,9 @@ fun StudioScreen(
         ) {
             StudioTransportButton(
                 text = "SAVE",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting && !historyBusy,
                 activeColor = Color(0xFF355D48),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1.15f)
             ) {
                 if (currentProjectName.isNotBlank()) {
                     val nameToUpdate = currentProjectName
@@ -707,13 +814,35 @@ fun StudioScreen(
                     projectDialogOpen = true
                 }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             StudioTransportButton(
-                text = "UNDO",
+                text = "⟲",
+                enabled = canUndoEdit && !historyBusy && recordingTrack == null &&
+                    countdownTrack == null && !stoppingRecording && !cleaningSilences &&
+                    !creatingNewRecord && !exporting,
+                activeColor = Color(0xFF6A5840),
+                modifier = Modifier.weight(0.66f)
+            ) {
+                swapAudioHistory(redo = false)
+            }
+            Spacer(Modifier.width(4.dp))
+            StudioTransportButton(
+                text = "⟳",
+                enabled = canRedoEdit && !historyBusy && recordingTrack == null &&
+                    countdownTrack == null && !stoppingRecording && !cleaningSilences &&
+                    !creatingNewRecord && !exporting,
+                activeColor = Color(0xFF46645C),
+                modifier = Modifier.weight(0.66f)
+            ) {
+                swapAudioHistory(redo = true)
+            }
+            Spacer(Modifier.width(4.dp))
+            StudioTransportButton(
+                text = "NEW",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording &&
-                    existing.any { it } && !exporting && !cleaningSilences && !creatingNewRecord,
+                    existing.any { it } && !exporting && !historyBusy && !cleaningSilences && !creatingNewRecord,
                 activeColor = Color(0xFF8E3439),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
                 playing = false
@@ -730,6 +859,8 @@ fun StudioScreen(
                     }
                     creatingNewRecord = false
                     if (savedAndCleared) {
+                        canUndoEdit = false
+                        canRedoEdit = false
                         currentProjectName = ""
                         projectDialogOpen = false
                         projectName = ""
@@ -763,12 +894,12 @@ fun StudioScreen(
                     }
                 }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             StudioTransportButton(
                 text = "OPEN",
-                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 activeColor = Color(0xFF3D527A),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 projectList = engine.listProjects()
                 if (projectList.isEmpty()) {
@@ -802,18 +933,14 @@ fun StudioScreen(
                 recording = recordingTrack == 1,
                 countdownBeat = if (countdownTrack == 1) countdownBeat else 0,
                 looped = looped[1],
-                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 modifier = Modifier.weight(1f),
                 onVolume = { volumes[1] = it },
                 onMute = { muted[1] = !muted[1] },
                 onSolo = { solo[1] = !solo[1] },
                 onRecord = { requestRecord(1) },
                 onLoop = { looped[1] = !looped[1] },
-                onClear = {
-                    engine.deleteTrack(1)
-                    existing[1] = false
-                    durations[1] = 0L
-                }
+                onClear = { deleteTrackWithHistory(1) }
             )
             CompactStudioTrack(
                 index = 2,
@@ -827,18 +954,14 @@ fun StudioScreen(
                 recording = recordingTrack == 2,
                 countdownBeat = if (countdownTrack == 2) countdownBeat else 0,
                 looped = looped[2],
-                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting,
+                controlsEnabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 modifier = Modifier.weight(1f),
                 onVolume = { volumes[2] = it },
                 onMute = { muted[2] = !muted[2] },
                 onSolo = { solo[2] = !solo[2] },
                 onRecord = { requestRecord(2) },
                 onLoop = { looped[2] = !looped[2] },
-                onClear = {
-                    engine.deleteTrack(2)
-                    existing[2] = false
-                    durations[2] = 0L
-                }
+                onClear = { deleteTrackWithHistory(2) }
             )
         }
 
@@ -993,72 +1116,72 @@ fun StudioScreen(
                                 Spacer(Modifier.height(5.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    TextButton(
+                                    StudioProjectActionButton(
+                                        symbol = if (previewingProject == name) "■" else "▶",
+                                        description = "Écouter le morceau",
+                                        color = Color(0xFF173C65),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject == name) {
+                                                if (previewingProject == name) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            } else {
+                                                } else {
                                                 engine.stopPlayback()
                                                 previewSequence++
                                                 val sequence = previewSequence
                                                 val seconds = engine.previewSavedProject(name)
                                                 if (seconds > 0L) {
-                                                    previewingProject = name
-                                                    scope.launch {
-                                                        delay(seconds * 1000L)
-                                                        if (previewSequence == sequence &&
-                                                            previewingProject == name) {
-                                                            engine.stopPlayback()
-                                                            previewingProject = null
-                                                        }
-                                                    }
-                                                } else {
-                                                    previewingProject = null
-                                                    Toast.makeText(
-                                                        context, "Aucun son à pré-écouter", Toast.LENGTH_SHORT
-                                                    ).show()
+                                                previewingProject = name
+                                                scope.launch {
+                                                delay(seconds * 1000L)
+                                                if (previewSequence == sequence &&
+                                                previewingProject == name) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
                                                 }
-                                            }
+                                                }
+                                                } else {
+                                                previewingProject = null
+                                                Toast.makeText(
+                                                context, "Aucun son à pré-écouter", Toast.LENGTH_SHORT
+                                                ).show()
+                                                }
+                                                }
                                         }
-                                    ) {
-                                        Text(
-                                            if (previewingProject == name) "■" else "▶",
-                                            color = Color(0xFF173C65),
-                                            fontSize = 25.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    TextButton(
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "✎",
+                                        description = "Renommer le morceau",
+                                        color = Color(0xFF173C65),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject != null) {
+                                                if (previewingProject != null) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            }
-                                            renamingProject = name
-                                            renameText = displayName
+                                                }
+                                                renamingProject = name
+                                                renameText = displayName
                                         }
-                                    ) {
-                                        Text("✎", color = Color(0xFF173C65), fontSize = 26.sp)
-                                    }
-                                    TextButton(
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "☁",
+                                        description = "Exporter le morceau en MP3 vers Drive",
+                                        color = Color(0xFF246B79),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject != null) {
+                                                if (previewingProject != null) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            }
-                                            pendingDriveProjectName = name
-                                            projectBusy = true
-                                            val safeTitle = displayName.trim()
+                                                }
+                                                pendingDriveProjectName = name
+                                                projectBusy = true
+                                                val safeTitle = displayName.trim()
                                                 .replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
                                                 .removeSuffix(".m4a")
                                                 .removeSuffix(".M4A")
@@ -1066,74 +1189,73 @@ fun StudioScreen(
                                                 .removeSuffix(".MP3")
                                                 .take(100)
                                                 .ifBlank { "MerylStudio" }
-                                            runCatching { driveExportLauncher.launch("$safeTitle.mp3") }
+                                                runCatching { driveExportLauncher.launch("$safeTitle.mp3") }
                                                 .onFailure {
-                                                    pendingDriveProjectName = null
-                                                    projectBusy = false
-                                                    Toast.makeText(
-                                                        context, "Sélecteur Drive indisponible",
-                                                        Toast.LENGTH_LONG
-                                                    ).show()
+                                                pendingDriveProjectName = null
+                                                projectBusy = false
+                                                Toast.makeText(
+                                                context, "Sélecteur Drive indisponible",
+                                                Toast.LENGTH_LONG
+                                                ).show()
                                                 }
                                         }
-                                    ) {
-                                        Text("DRIVE", color = Color(0xFF246B79),
-                                            fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    TextButton(
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "✕",
+                                        description = "Supprimer le morceau",
+                                        color = Color(0xFFAE122A),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            if (previewingProject != null) {
+                                                if (previewingProject != null) {
                                                 engine.stopPlayback()
                                                 previewingProject = null
                                                 previewSequence++
-                                            }
-                                            deletingProject = name
+                                                }
+                                                deletingProject = name
                                         }
-                                    ) {
-                                        Text("✕", color = Color(0xFFAE122A), fontSize = 25.sp)
-                                    }
-                                }
-                                    TextButton(
-                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    StudioProjectActionButton(
+                                        symbol = "📂",
+                                        description = "Ouvrir le morceau dans le studio",
+                                        color = Color(0xFF173C65),
                                         enabled = !projectBusy,
                                         onClick = {
-                                            engine.stopPlayback()
-                                            previewingProject = null
-                                            previewSequence++
-                                            playing = false
-                                            if (engine.loadProject(name)) {
+                                                engine.stopPlayback()
+                                                previewingProject = null
+                                                previewSequence++
+                                                playing = false
+                                                if (engine.loadProject(name)) {
+                                                canUndoEdit = false
+                                                canRedoEdit = false
                                                 currentProjectName = engine.currentProjectName()
                                                 segmentEnds.clear()
                                                 repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
                                                 val loaded = engine.loadProjectSettings()
                                                 loaded?.let { s ->
-                                                    repeat(STUDIO_TRACK_COUNT) { i ->
-                                                        volumes[i] = s.volumes.getOrElse(i) { 1f }
-                                                        muted[i] = s.muted.getOrElse(i) { false }
-                                                        solo[i] = s.solo.getOrElse(i) { false }
-                                                        looped[i] = s.looped.getOrElse(i) { false }
-                                                    }
-                                                    tempoBpm = s.bpm
+                                                repeat(STUDIO_TRACK_COUNT) { i ->
+                                                volumes[i] = s.volumes.getOrElse(i) { 1f }
+                                                muted[i] = s.muted.getOrElse(i) { false }
+                                                solo[i] = s.solo.getOrElse(i) { false }
+                                                looped[i] = s.looped.getOrElse(i) { false }
+                                                }
+                                                tempoBpm = s.bpm
                                                 }
                                                 playheadMs = 0L
                                                 playbackStartOffset = 0L
                                                 Toast.makeText(
-                                                    context, "Projet ouvert : $displayName",
-                                                    Toast.LENGTH_SHORT
+                                                context, "Projet ouvert : $displayName",
+                                                Toast.LENGTH_SHORT
                                                 ).show()
                                                 projectDialogOpen = false
-                                            } else {
+                                                } else {
                                                 Toast.makeText(
-                                                    context, "Impossible d'ouvrir le projet",
-                                                    Toast.LENGTH_LONG
+                                                context, "Impossible d'ouvrir le projet",
+                                                Toast.LENGTH_LONG
                                                 ).show()
-                                            }
+                                                }
                                         }
-                                    ) {
-                                        Text("OUVRIR", color = Color(0xFF173C65),
-                                            fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
+                                    )
+                                }
                                 Text(
                                     text = sizeLabel,
                                     color = Color(0xFF67717A),
@@ -1817,6 +1939,31 @@ private fun StudioMiniButton(
 }
 
 @Composable
+private fun StudioProjectActionButton(
+    symbol: String,
+    description: String,
+    color: Color,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(43.dp)
+            .semantics { contentDescription = description }
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = symbol,
+            fontSize = if (symbol == "📂") 23.sp else 26.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (enabled) color else Color(0xFF8D939B),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
 private fun StudioTransportButton(
     text: String,
     enabled: Boolean,
@@ -1854,6 +2001,9 @@ private class MerylStudioEngine(private val context: Context) {
     private val projectDir = File(context.filesDir, "meryl_studio/current_project").apply { mkdirs() }
     private val savedProjectsDir = File(context.filesDir, "meryl_studio/saved_projects").apply { mkdirs() }
     private val studioPrefs = context.getSharedPreferences("meryl_studio", Context.MODE_PRIVATE)
+    private val historyRoot = File(context.filesDir, "meryl_studio/edit_history").apply { mkdirs() }
+    private val undoSnapshot = File(historyRoot, "undo")
+    private val redoSnapshot = File(historyRoot, "redo")
     private val recording = AtomicBoolean(false)
     private val playbackGeneration = AtomicInteger(0)
     @Volatile private var currentRecorder: AudioRecord? = null
@@ -1873,6 +2023,139 @@ private class MerylStudioEngine(private val context: Context) {
 
     private fun rememberCurrentProject(name: String) {
         studioPrefs.edit().putString("current_project_name", name).apply()
+    }
+
+    fun hasUndo(): Boolean = undoSnapshot.isDirectory
+    fun hasRedo(): Boolean = redoSnapshot.isDirectory
+
+    @Synchronized
+    fun clearEditHistory() {
+        runCatching { undoSnapshot.deleteRecursively() }
+        runCatching { redoSnapshot.deleteRecursively() }
+    }
+
+    // Store only the three working WAVs and their mixer settings. Each new edit
+    // replaces the previous undo state (one-step history to bound disk usage).
+    private fun createEditSnapshot(settings: StudioMixSettings): File? {
+        val stage = File(historyRoot, ".snapshot_" + System.nanoTime())
+        return runCatching {
+            check(stage.mkdirs())
+            repeat(STUDIO_TRACK_COUNT) { index ->
+                val original = trackFile(index)
+                if (original.isFile) {
+                    val copied = File(stage, original.name)
+                    original.copyTo(copied)
+                    check(copied.length() == original.length())
+                }
+            }
+            val projectSettings = File(projectDir, "project.json")
+            if (projectSettings.isFile) {
+                projectSettings.copyTo(File(stage, "project.json"))
+            }
+            val metadata = JSONObject().apply {
+                put("name", currentProjectName())
+                put("volumes", settings.volumes.joinToString(","))
+                put("muted", settings.muted.joinToString(","))
+                put("solo", settings.solo.joinToString(","))
+                put("looped", settings.looped.joinToString(","))
+                put("bpm", settings.bpm)
+            }
+            File(stage, "history.json").writeText(metadata.toString())
+            stage
+        }.getOrElse {
+            runCatching { stage.deleteRecursively() }
+            null
+        }
+    }
+
+    private fun replaceEditSnapshot(stage: File, target: File): Boolean {
+        val previous = File(historyRoot, ".previous_" + System.nanoTime())
+        val hadPrevious = target.exists()
+        if (hadPrevious && !target.renameTo(previous)) {
+            stage.deleteRecursively()
+            return false
+        }
+        if (!stage.renameTo(target)) {
+            if (hadPrevious) runCatching { previous.renameTo(target) }
+            stage.deleteRecursively()
+            return false
+        }
+        if (hadPrevious) runCatching { previous.deleteRecursively() }
+        return true
+    }
+
+    @Synchronized
+    fun rememberBeforeAudioEdit(settings: StudioMixSettings): Boolean {
+        if (recording.get() || recordThread?.isAlive == true) return false
+        val stage = createEditSnapshot(settings) ?: return false
+        if (!replaceEditSnapshot(stage, undoSnapshot)) return false
+        runCatching { redoSnapshot.deleteRecursively() }
+        return true
+    }
+
+    // Swap the active WAV files with a complete snapshot. Stage and atomically
+    // exchange working directories so a failed restore cannot destroy a take.
+    @Synchronized
+    fun restoreAudioEdit(redo: Boolean, currentSettings: StudioMixSettings): StudioHistoryState? {
+        if (recording.get() || recordThread?.isAlive == true) return null
+        val source = if (redo) redoSnapshot else undoSnapshot
+        val opposite = if (redo) undoSnapshot else redoSnapshot
+        if (!source.isDirectory) return null
+        val savedState = runCatching {
+            val meta = JSONObject(File(source, "history.json").readText())
+            fun floats(key: String) = meta.optString(key).split(",").mapNotNull { it.toFloatOrNull() }
+            fun bools(key: String) = meta.optString(key).split(",").map { it.toBoolean() }
+            StudioHistoryState(
+                settings = StudioMixSettings(
+                    volumes = floats("volumes"),
+                    muted = bools("muted"),
+                    solo = bools("solo"),
+                    looped = bools("looped"),
+                    bpm = meta.optInt("bpm", 120)
+                ),
+                projectName = meta.optString("name")
+            )
+        }.getOrNull() ?: return null
+        val currentSnapshot = createEditSnapshot(currentSettings) ?: return null
+        val stage = File(projectDir.parentFile, ".restore_stage_" + System.nanoTime())
+        val backup = File(projectDir.parentFile, ".restore_previous_" + System.nanoTime())
+        val prepared = runCatching {
+            // Preserve raw.tmp crash recovery files and any other work files.
+            check(projectDir.copyRecursively(stage, overwrite = false))
+            repeat(STUDIO_TRACK_COUNT) { index ->
+                val target = File(stage, "track_${index + 1}.wav")
+                if (target.exists()) check(target.delete())
+                val savedTrack = File(source, target.name)
+                if (savedTrack.isFile) savedTrack.copyTo(target)
+            }
+            val projectJson = File(stage, "project.json")
+            if (projectJson.exists()) check(projectJson.delete())
+            val savedJson = File(source, "project.json")
+            if (savedJson.isFile) savedJson.copyTo(projectJson)
+            true
+        }.getOrDefault(false)
+        if (!prepared) {
+            runCatching { stage.deleteRecursively() }
+            runCatching { currentSnapshot.deleteRecursively() }
+            return null
+        }
+        stopPlayback()
+        if (!projectDir.renameTo(backup)) {
+            runCatching { stage.deleteRecursively() }
+            runCatching { currentSnapshot.deleteRecursively() }
+            return null
+        }
+        if (!stage.renameTo(projectDir)) {
+            runCatching { backup.renameTo(projectDir) }
+            runCatching { stage.deleteRecursively() }
+            runCatching { currentSnapshot.deleteRecursively() }
+            return null
+        }
+        rememberCurrentProject(savedState.projectName)
+        replaceEditSnapshot(currentSnapshot, opposite)
+        runCatching { source.deleteRecursively() }
+        runCatching { backup.deleteRecursively() }
+        return savedState
     }
 
     fun hasTrack(index: Int): Boolean = trackFile(index).let { it.isFile && it.length() > WAV_HEADER_SIZE }
@@ -2468,6 +2751,7 @@ private class MerylStudioEngine(private val context: Context) {
             return false
         }
         rememberCurrentProject("")
+        clearEditHistory()
         // Keep any orphaned raw audio for recovery after earlier microphone errors.
         val hasRecoverableAudio = recovery.walkTopDown()
             .any { it.isFile && it.name.endsWith(".raw.tmp") }
@@ -2490,7 +2774,10 @@ private class MerylStudioEngine(private val context: Context) {
                 ?.copyTo(File(projectDir, "project.json"), overwrite = true)
             true
         }.getOrDefault(false)
-        if (loaded) rememberCurrentProject(name)
+        if (loaded) {
+            rememberCurrentProject(name)
+            clearEditHistory()
+        }
         return loaded
     }
 
