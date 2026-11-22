@@ -114,6 +114,12 @@ private data class StudioMixSettings(
     val bpm: Int
 )
 
+// One-step audio edit history. Saved records in saved_projects/ are never modified.
+private data class StudioHistoryState(
+    val settings: StudioMixSettings,
+    val projectName: String
+)
+
 @Composable
 fun StudioScreen(
     onBack: () -> Unit,
@@ -1878,6 +1884,9 @@ private class MerylStudioEngine(private val context: Context) {
     private val projectDir = File(context.filesDir, "meryl_studio/current_project").apply { mkdirs() }
     private val savedProjectsDir = File(context.filesDir, "meryl_studio/saved_projects").apply { mkdirs() }
     private val studioPrefs = context.getSharedPreferences("meryl_studio", Context.MODE_PRIVATE)
+    private val historyRoot = File(context.filesDir, "meryl_studio/edit_history").apply { mkdirs() }
+    private val undoSnapshot = File(historyRoot, "undo")
+    private val redoSnapshot = File(historyRoot, "redo")
     private val recording = AtomicBoolean(false)
     private val playbackGeneration = AtomicInteger(0)
     @Volatile private var currentRecorder: AudioRecord? = null
@@ -1897,6 +1906,139 @@ private class MerylStudioEngine(private val context: Context) {
 
     private fun rememberCurrentProject(name: String) {
         studioPrefs.edit().putString("current_project_name", name).apply()
+    }
+
+    fun hasUndo(): Boolean = undoSnapshot.isDirectory
+    fun hasRedo(): Boolean = redoSnapshot.isDirectory
+
+    @Synchronized
+    fun clearEditHistory() {
+        runCatching { undoSnapshot.deleteRecursively() }
+        runCatching { redoSnapshot.deleteRecursively() }
+    }
+
+    // Store only the three working WAVs and their mixer settings. Each new edit
+    // replaces the previous undo state (one-step history to bound disk usage).
+    private fun createEditSnapshot(settings: StudioMixSettings): File? {
+        val stage = File(historyRoot, ".snapshot_" + System.nanoTime())
+        return runCatching {
+            check(stage.mkdirs())
+            repeat(STUDIO_TRACK_COUNT) { index ->
+                val original = trackFile(index)
+                if (original.isFile) {
+                    val copied = File(stage, original.name)
+                    original.copyTo(copied)
+                    check(copied.length() == original.length())
+                }
+            }
+            val projectSettings = File(projectDir, "project.json")
+            if (projectSettings.isFile) {
+                projectSettings.copyTo(File(stage, "project.json"))
+            }
+            val metadata = JSONObject().apply {
+                put("name", currentProjectName())
+                put("volumes", settings.volumes.joinToString(","))
+                put("muted", settings.muted.joinToString(","))
+                put("solo", settings.solo.joinToString(","))
+                put("looped", settings.looped.joinToString(","))
+                put("bpm", settings.bpm)
+            }
+            File(stage, "history.json").writeText(metadata.toString())
+            stage
+        }.getOrElse {
+            runCatching { stage.deleteRecursively() }
+            null
+        }
+    }
+
+    private fun replaceEditSnapshot(stage: File, target: File): Boolean {
+        val previous = File(historyRoot, ".previous_" + System.nanoTime())
+        val hadPrevious = target.exists()
+        if (hadPrevious && !target.renameTo(previous)) {
+            stage.deleteRecursively()
+            return false
+        }
+        if (!stage.renameTo(target)) {
+            if (hadPrevious) runCatching { previous.renameTo(target) }
+            stage.deleteRecursively()
+            return false
+        }
+        if (hadPrevious) runCatching { previous.deleteRecursively() }
+        return true
+    }
+
+    @Synchronized
+    fun rememberBeforeAudioEdit(settings: StudioMixSettings): Boolean {
+        if (recording.get() || recordThread?.isAlive == true) return false
+        val stage = createEditSnapshot(settings) ?: return false
+        if (!replaceEditSnapshot(stage, undoSnapshot)) return false
+        runCatching { redoSnapshot.deleteRecursively() }
+        return true
+    }
+
+    // Swap the active WAV files with a complete snapshot. Stage and atomically
+    // exchange working directories so a failed restore cannot destroy a take.
+    @Synchronized
+    fun restoreAudioEdit(redo: Boolean, currentSettings: StudioMixSettings): StudioHistoryState? {
+        if (recording.get() || recordThread?.isAlive == true) return null
+        val source = if (redo) redoSnapshot else undoSnapshot
+        val opposite = if (redo) undoSnapshot else redoSnapshot
+        if (!source.isDirectory) return null
+        val savedState = runCatching {
+            val meta = JSONObject(File(source, "history.json").readText())
+            fun floats(key: String) = meta.optString(key).split(",").mapNotNull { it.toFloatOrNull() }
+            fun bools(key: String) = meta.optString(key).split(",").map { it.toBoolean() }
+            StudioHistoryState(
+                settings = StudioMixSettings(
+                    volumes = floats("volumes"),
+                    muted = bools("muted"),
+                    solo = bools("solo"),
+                    looped = bools("looped"),
+                    bpm = meta.optInt("bpm", 120)
+                ),
+                projectName = meta.optString("name")
+            )
+        }.getOrNull() ?: return null
+        val currentSnapshot = createEditSnapshot(currentSettings) ?: return null
+        val stage = File(projectDir.parentFile, ".restore_stage_" + System.nanoTime())
+        val backup = File(projectDir.parentFile, ".restore_previous_" + System.nanoTime())
+        val prepared = runCatching {
+            // Preserve raw.tmp crash recovery files and any other work files.
+            check(projectDir.copyRecursively(stage, overwrite = false))
+            repeat(STUDIO_TRACK_COUNT) { index ->
+                val target = File(stage, "track_${index + 1}.wav")
+                if (target.exists()) check(target.delete())
+                val savedTrack = File(source, target.name)
+                if (savedTrack.isFile) savedTrack.copyTo(target)
+            }
+            val projectJson = File(stage, "project.json")
+            if (projectJson.exists()) check(projectJson.delete())
+            val savedJson = File(source, "project.json")
+            if (savedJson.isFile) savedJson.copyTo(projectJson)
+            true
+        }.getOrDefault(false)
+        if (!prepared) {
+            runCatching { stage.deleteRecursively() }
+            runCatching { currentSnapshot.deleteRecursively() }
+            return null
+        }
+        stopPlayback()
+        if (!projectDir.renameTo(backup)) {
+            runCatching { stage.deleteRecursively() }
+            runCatching { currentSnapshot.deleteRecursively() }
+            return null
+        }
+        if (!stage.renameTo(projectDir)) {
+            runCatching { backup.renameTo(projectDir) }
+            runCatching { stage.deleteRecursively() }
+            runCatching { currentSnapshot.deleteRecursively() }
+            return null
+        }
+        rememberCurrentProject(savedState.projectName)
+        replaceEditSnapshot(currentSnapshot, opposite)
+        runCatching { source.deleteRecursively() }
+        runCatching { backup.deleteRecursively() }
+        return savedState
     }
 
     fun hasTrack(index: Int): Boolean = trackFile(index).let { it.isFile && it.length() > WAV_HEADER_SIZE }
