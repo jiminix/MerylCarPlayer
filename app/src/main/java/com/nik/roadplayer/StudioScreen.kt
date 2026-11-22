@@ -788,7 +788,7 @@ fun StudioScreen(
                 text = "SAVE",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && existing.any { it } && !exporting && !historyBusy,
                 activeColor = Color(0xFF355D48),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1.15f)
             ) {
                 if (currentProjectName.isNotBlank()) {
                     val nameToUpdate = currentProjectName
@@ -814,13 +814,35 @@ fun StudioScreen(
                     projectDialogOpen = true
                 }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             StudioTransportButton(
-                text = "UNDO",
+                text = "⟲",
+                enabled = canUndoEdit && !historyBusy && recordingTrack == null &&
+                    countdownTrack == null && !stoppingRecording && !cleaningSilences &&
+                    !creatingNewRecord && !exporting,
+                activeColor = Color(0xFF6A5840),
+                modifier = Modifier.weight(0.66f)
+            ) {
+                swapAudioHistory(redo = false)
+            }
+            Spacer(Modifier.width(4.dp))
+            StudioTransportButton(
+                text = "⟳",
+                enabled = canRedoEdit && !historyBusy && recordingTrack == null &&
+                    countdownTrack == null && !stoppingRecording && !cleaningSilences &&
+                    !creatingNewRecord && !exporting,
+                activeColor = Color(0xFF46645C),
+                modifier = Modifier.weight(0.66f)
+            ) {
+                swapAudioHistory(redo = true)
+            }
+            Spacer(Modifier.width(4.dp))
+            StudioTransportButton(
+                text = "NEW",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording &&
                     existing.any { it } && !exporting && !historyBusy && !cleaningSilences && !creatingNewRecord,
                 activeColor = Color(0xFF8E3439),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 engine.stopPlayback()
                 playing = false
@@ -837,6 +859,8 @@ fun StudioScreen(
                     }
                     creatingNewRecord = false
                     if (savedAndCleared) {
+                        canUndoEdit = false
+                        canRedoEdit = false
                         currentProjectName = ""
                         projectDialogOpen = false
                         projectName = ""
@@ -870,12 +894,12 @@ fun StudioScreen(
                     }
                 }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             StudioTransportButton(
                 text = "OPEN",
                 enabled = recordingTrack == null && countdownTrack == null && !stoppingRecording && !exporting && !historyBusy,
                 activeColor = Color(0xFF3D527A),
-                modifier = Modifier.width(96.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 projectList = engine.listProjects()
                 if (projectList.isEmpty()) {
@@ -1201,6 +1225,8 @@ fun StudioScreen(
                                                 previewSequence++
                                                 playing = false
                                                 if (engine.loadProject(name)) {
+                                                canUndoEdit = false
+                                                canRedoEdit = false
                                                 currentProjectName = engine.currentProjectName()
                                                 segmentEnds.clear()
                                                 repeat(STUDIO_TRACK_COUNT) { refreshTrack(it) }
@@ -2725,6 +2751,7 @@ private class MerylStudioEngine(private val context: Context) {
             return false
         }
         rememberCurrentProject("")
+        clearEditHistory()
         // Keep any orphaned raw audio for recovery after earlier microphone errors.
         val hasRecoverableAudio = recovery.walkTopDown()
             .any { it.isFile && it.name.endsWith(".raw.tmp") }
@@ -2747,7 +2774,10 @@ private class MerylStudioEngine(private val context: Context) {
                 ?.copyTo(File(projectDir, "project.json"), overwrite = true)
             true
         }.getOrDefault(false)
-        if (loaded) rememberCurrentProject(name)
+        if (loaded) {
+            rememberCurrentProject(name)
+            clearEditHistory()
+        }
         return loaded
     }
 
